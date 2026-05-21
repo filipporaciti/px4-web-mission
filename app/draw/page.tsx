@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 
 type Setpoint = {
+  index: number;
   x: number;
   y: number;
   z: number;
@@ -20,12 +21,7 @@ export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [setpoints, setSetpoints] = useState<Setpoint[]>([]);
   const [markers, setMarkers] = useState<Marker[]>([]);
-  const [selectedSetpoint, setSelectedSetpoint] = useState<{
-    index: number;
-    x: number;
-    y: number;
-    z: number;
-  } | null>(null);
+  const [selectedSetpoint, setSelectedSetpoint] = useState<Setpoint | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -231,13 +227,8 @@ export default function DrawPage() {
             return;
           }
 
-          const data = hit.object.userData as { index: number; x: number; y: number; z: number };
-          setSelectedSetpoint({
-            index: data.index,
-            x: data.x,
-            y: data.y,
-            z: data.z,
-          });
+          const data = hit.object.userData as Setpoint;
+          setSelectedSetpoint(data);
         };
 
         renderer.domElement.addEventListener("pointerdown", onPointerDown);
@@ -295,7 +286,7 @@ export default function DrawPage() {
   );
 }
 
-function InfoSidebar({ setPoint }: { setPoint: { index: number; x: number; y: number; z: number } | null }) {
+function InfoSidebar({ setPoint }: { setPoint: Setpoint | null }) {
   return (
     <aside className="absolute right-4 top-4 z-10 w-64 rounded border bg-white/95 p-4 shadow-sm backdrop-blur-sm">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Setpoint</h2>
@@ -352,8 +343,6 @@ function parseMarkers(text: string): Marker[] {
   const length = Number(data.marker_length ?? data.length ?? 1);
   const positions = data.position ?? {};
 
-  console.log("Parsed marker data:", { length, positions });
-
   return Object.entries(positions).map(([id, value]: [string, any]) => ({
     id,
     x: Number(value.x),
@@ -366,10 +355,11 @@ function parseMarkers(text: string): Marker[] {
 function parseSetpoints(text: string): Setpoint[] {
   const data = JSON.parse(text);
   const targets = data.targets ?? [];
-  const out = targets.map((item: any) => ({
-    x: Number(item.north_m),
-    y: Number(item.east_m),
-    z: Number(item.down_m) * -1,
+  const out = Object.entries(targets).map(([index, value]: [string, any]) => ({
+    index: Number(index),
+    x: Number(value.north_m),
+    y: Number(value.east_m),
+    z: Number(value.down_m) * -1,
   }));
   return out;
 }
