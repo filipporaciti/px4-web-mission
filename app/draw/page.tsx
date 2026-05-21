@@ -8,23 +8,42 @@ type Setpoint = {
   z: number;
 };
 
+type Marker = {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  length: number;
+};
+
 export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [setpoints, setSetpoints] = useState<Setpoint[]>([]);
+  const [markers, setMarkers] = useState<Marker[]>([]);
 
   useEffect(() => {
     let mounted = true;
     let cleanup = () => {};
-    let pts: Setpoint[] = setpoints;
+
+    let currentSetpoints: Setpoint[] = setpoints;
+    let currentMarkers: Marker[] = markers;
+
     try {
-      const saved = typeof window !== "undefined" ? localStorage.getItem("editor-content-mission") : null;
-      if (saved) {
-        pts = parseSetpoints(saved);
-        setSetpoints(pts);
+      const savedMission = typeof window !== "undefined" ? localStorage.getItem("editor-content-mission") : null;
+      if (savedMission) {
+        currentSetpoints = parseSetpoints(savedMission);
+        setSetpoints(currentSetpoints);
+      }
+
+      const savedMarker = typeof window !== "undefined" ? localStorage.getItem("editor-content-marker") : null;
+      if (savedMarker) {
+        currentMarkers = parseMarkers(savedMarker);
+        setMarkers(currentMarkers);
       }
     } catch (err) {
-      console.warn("Failed to parse saved setpoints:", err);
+      console.warn("Failed to parse saved content:", err);
     }
+
     async function init() {
       try {
         const { OrbitControls } = await import("three/examples/jsm/controls/OrbitControls.js");
@@ -68,6 +87,8 @@ export default function DrawPage() {
           color: 0xffff00
         });
         const labelTextures: THREE.CanvasTexture[] = [];
+        const floorLabelGeometries: THREE.PlaneGeometry[] = [];
+        const floorLabelMaterials: THREE.MeshBasicMaterial[] = [];
 
         function createNumberLabelSprite(label: string) {
           const canvas = document.createElement("canvas");
@@ -104,12 +125,61 @@ export default function DrawPage() {
           return sprite;
         }
 
-        pts.forEach((setpoint, index) => {
+        function createFloorLabel(label: string) {
+          const canvas = document.createElement("canvas");
+          canvas.width = 128;
+          canvas.height = 128;
+
+          const context = canvas.getContext("2d");
+          if (!context) {
+            throw new Error("Unable to create canvas context for label");
+          }
+
+          context.font = "bold 36px sans-serif";
+          context.fillStyle = "#ffffff";
+          context.textAlign = "center";
+          context.textBaseline = "middle";
+          context.fillText(label, 64, 64);
+
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.needsUpdate = true;
+          labelTextures.push(texture);
+
+          const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            depthWrite: false,
+          });
+          floorLabelMaterials.push(material);
+
+          const geometry = new THREE.PlaneGeometry(0.55, 0.55);
+          floorLabelGeometries.push(geometry);
+
+          return new THREE.Mesh(geometry, material);
+        }
+
+        currentSetpoints.forEach((setpoint, index) => {
           const point = new THREE.Mesh(pointGeometry, pointMaterial);
           point.position.set(setpoint.x, setpoint.y, setpoint.z);
           scene.add(point);
           const label = createNumberLabelSprite(String(index + 1));
           label.position.set(setpoint.x, setpoint.y, setpoint.z + 0.35);
+          scene.add(label);
+        });
+
+        currentMarkers.forEach((marker) => {
+          const markerMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff00ff,
+            transparent: true,
+            opacity: 0.6,
+          });
+          const markerGeometry = new THREE.BoxGeometry(marker.length, 0.03, marker.length);
+          markerGeometry.rotateX(Math.PI / 2);
+          const markerMesh = new THREE.Mesh(markerGeometry, markerMaterial);
+          markerMesh.position.set(marker.x, marker.y, marker.z);
+          scene.add(markerMesh);
+          const label = createFloorLabel(marker.id);
+          label.position.set(marker.x, marker.y, marker.z + 0.02);
           scene.add(label);
         });
 
@@ -140,6 +210,8 @@ export default function DrawPage() {
           controls.dispose();
           pointGeometry.dispose();
           pointMaterial.dispose();
+          floorLabelGeometries.forEach((geometry) => geometry.dispose());
+          floorLabelMaterials.forEach((material) => material.dispose());
           labelTextures.forEach((texture) => texture.dispose());
           renderer.dispose();
           if (renderer.domElement && renderer.domElement.parentElement) {
@@ -157,12 +229,11 @@ export default function DrawPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <h1 className="mb-2 text-lg font-semibold">3D mission</h1>
+      <h1 className="mb-2 text-lg font-semibold">Marker and setpoint floor</h1>
       <div ref={mountRef} className="w-full h-[600px] border rounded" />
     </div>
   );
 }
-
 
 function getAxisLines(size: number) {
   const axisRadius = 0.03;
@@ -173,14 +244,14 @@ function getAxisLines(size: number) {
   );
   xAxis.rotation.z = Math.PI / 2;
   xAxis.position.x = size / 2;
-  
+
   const yAxis = new THREE.Mesh(
     new THREE.CylinderGeometry(axisRadius, axisRadius, size, 24),
     new THREE.MeshBasicMaterial({ color: 0x4dff4d }),
   );
   yAxis.rotation.y = Math.PI / 2;
   yAxis.position.y = size / 2;
-  
+
   const zAxis = new THREE.Mesh(
     new THREE.CylinderGeometry(axisRadius, axisRadius, size, 24),
     new THREE.MeshBasicMaterial({ color: 0x4d4dff }),
@@ -190,8 +261,25 @@ function getAxisLines(size: number) {
   return [xAxis, yAxis, zAxis];
 }
 
+function parseMarkers(text: string): Marker[] {
+  const data = JSON.parse(text);
+  const length = Number(data.marker_length ?? data.length ?? 1);
+  const positions = data.position ?? {};
+
+  console.log("Parsed marker data:", { length, positions });
+
+  return Object.entries(positions).map(([id, value]: [string, any]) => ({
+    id,
+    x: Number(value.x),
+    y: Number(value.y),
+    z: Number(value.z),
+    length: Number(length),
+  }));
+}
+
 function parseSetpoints(text: string): Setpoint[] {
-  const targets = JSON.parse(text).targets;
+  const data = JSON.parse(text);
+  const targets = data.targets ?? [];
   const out = targets.map((item: any) => ({
     x: Number(item.north_m),
     y: Number(item.east_m),
