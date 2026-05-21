@@ -20,6 +20,12 @@ export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [setpoints, setSetpoints] = useState<Setpoint[]>([]);
   const [markers, setMarkers] = useState<Marker[]>([]);
+  const [selectedSetpoint, setSelectedSetpoint] = useState<{
+    index: number;
+    x: number;
+    y: number;
+    z: number;
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -102,6 +108,7 @@ export default function DrawPage() {
         const labelTextures: THREE.CanvasTexture[] = [];
         const floorLabelGeometries: THREE.PlaneGeometry[] = [];
         const floorLabelMaterials: THREE.MeshBasicMaterial[] = [];
+        const setpointPickables: THREE.Object3D[] = [];
 
         function createNumberLabelSprite(label: string) {
           const canvas = document.createElement("canvas");
@@ -174,10 +181,14 @@ export default function DrawPage() {
         currentSetpoints.forEach((setpoint, index) => {
           const point = new THREE.Mesh(pointGeometry, pointMaterial);
           point.position.set(setpoint.x, setpoint.y, setpoint.z);
+          point.userData = { kind: "setpoint", index, x: setpoint.x, y: setpoint.y, z: setpoint.z };
           scene.add(point);
+          setpointPickables.push(point);
           const label = createNumberLabelSprite(String(index + 1));
           label.position.set(setpoint.x, setpoint.y, setpoint.z + 0.35);
+          label.userData = { kind: "setpoint", index, x: setpoint.x, y: setpoint.y, z: setpoint.z };
           scene.add(label);
+          setpointPickables.push(label);
         });
 
         currentMarkers.forEach((marker) => {
@@ -204,6 +215,33 @@ export default function DrawPage() {
         } catch (e) {
         }
 
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+
+        const onPointerDown = (event: MouseEvent) => {
+          const rect = renderer.domElement.getBoundingClientRect();
+          pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+          pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+
+          raycaster.setFromCamera(pointer, camera);
+          const hits = raycaster.intersectObjects(setpointPickables, true);
+          const hit = hits.find((intersection) => intersection.object.userData?.kind === "setpoint");
+
+          if (!hit) {
+            return;
+          }
+
+          const data = hit.object.userData as { index: number; x: number; y: number; z: number };
+          setSelectedSetpoint({
+            index: data.index,
+            x: data.x,
+            y: data.y,
+            z: data.z,
+          });
+        };
+
+        renderer.domElement.addEventListener("pointerdown", onPointerDown);
+
         function onResize() {
           const w = mountRef.current?.clientWidth || 800;
           const h = mountRef.current?.clientHeight || 600;
@@ -225,6 +263,7 @@ export default function DrawPage() {
         cleanup = () => {
           mounted = false;
           window.removeEventListener("resize", onResize);
+          renderer.domElement.removeEventListener("pointerdown", onPointerDown);
           controls.dispose();
           pointGeometry.dispose();
           pointMaterial.dispose();
@@ -246,10 +285,39 @@ export default function DrawPage() {
   }, []);
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <h1 className="mb-2 text-lg font-semibold">Marker and setpoint floor</h1>
-      <div ref={mountRef} className="w-full h-[600px] border rounded" />
+      <div className="relative min-h-0 flex-1 rounded border overflow-hidden">
+        <div ref={mountRef} className="w-full h-[600px] border rounded" />
+        <InfoSidebar setPoint={selectedSetpoint} />
+      </div>
     </div>
+  );
+}
+
+function InfoSidebar({ setPoint }: { setPoint: { index: number; x: number; y: number; z: number } | null }) {
+  return (
+    <aside className="absolute right-4 top-4 z-10 w-64 rounded border bg-white/95 p-4 shadow-sm backdrop-blur-sm">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Setpoint</h2>
+          {setPoint ? (
+            <div className="space-y-2 text-sm">
+              <div>
+                <span className="font-medium">Number:</span> {setPoint.index + 1}
+              </div>
+              <div>
+                <span className="font-medium">x:</span> {setPoint.x.toFixed(2)}
+              </div>
+              <div>
+                <span className="font-medium">y:</span> {setPoint.y.toFixed(2)}
+              </div>
+              <div>
+                <span className="font-medium">z:</span> {setPoint.z.toFixed(2)}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">Click on a setpoint to see details</p>
+          )}
+        </aside>
   );
 }
 
