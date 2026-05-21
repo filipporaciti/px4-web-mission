@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import CodeEditor from '@uiw/react-textarea-code-editor';
 
 type Mode = "mission" | "marker";
 
@@ -60,11 +61,17 @@ export default function EditorPage() {
         </div>
       </div>
 
-      <textarea
+      <CodeEditor
         value={currentText}
+        language="json"
         onChange={(e) => onChange(e.target.value)}
         placeholder={mode === "mission" ? "Write mission JSON here..." : "Write marker JSON here..."}
         className="flex-1 w-full border rounded p-3 min-h-[300px]"
+        padding={15}
+        style={{
+          fontSize: 14,
+          fontFamily: 'ui-monospace,SFMono-Regular,SF Pro Text,Menlo,Monaco,Consolas,monospace',         
+        }}
       />
     </div>
   );
