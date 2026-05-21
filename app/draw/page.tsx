@@ -17,7 +17,7 @@ export default function DrawPage() {
     let cleanup = () => {};
     let pts: Setpoint[] = setpoints;
     try {
-      const saved = typeof window !== "undefined" ? localStorage.getItem("editor-content") : null;
+      const saved = typeof window !== "undefined" ? localStorage.getItem("editor-content-mission") : null;
       if (saved) {
         pts = parseSetpoints(saved);
         setSetpoints(pts);
