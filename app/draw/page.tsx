@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 
 type Setpoint = {
@@ -8,21 +8,23 @@ type Setpoint = {
   z: number;
 };
 
-const setpoints: Setpoint[] = [
-  { x: -3, y: -2, z: 0.5 },
-  { x: -2, y: -1, z: 1.5 },
-  { x: -1, y: 0, z: 2.5 },
-  { x: 0, y: 1, z: 3 },
-  { x: 1, y: 2, z: 2.2 }
-];
-
 export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const [setpoints, setSetpoints] = useState<Setpoint[]>([]);
 
   useEffect(() => {
     let mounted = true;
     let cleanup = () => {};
-
+    let pts: Setpoint[] = setpoints;
+    try {
+      const saved = typeof window !== "undefined" ? localStorage.getItem("editor-content") : null;
+      if (saved) {
+        pts = parseSetpoints(saved);
+        setSetpoints(pts);
+      }
+    } catch (err) {
+      console.warn("Failed to parse saved setpoints:", err);
+    }
     async function init() {
       try {
         const { OrbitControls } = await import("three/examples/jsm/controls/OrbitControls.js");
@@ -102,7 +104,7 @@ export default function DrawPage() {
           return sprite;
         }
 
-        setpoints.forEach((setpoint, index) => {
+        pts.forEach((setpoint, index) => {
           const point = new THREE.Mesh(pointGeometry, pointMaterial);
           point.position.set(setpoint.x, setpoint.y, setpoint.z);
           scene.add(point);
@@ -186,4 +188,14 @@ function getAxisLines(size: number) {
   zAxis.rotation.x = Math.PI / 2;
   zAxis.position.z = size / 2;
   return [xAxis, yAxis, zAxis];
+}
+
+function parseSetpoints(text: string): Setpoint[] {
+  const targets = JSON.parse(text).targets;
+  const out = targets.map((item: any) => ({
+    x: Number(item.north_m),
+    y: Number(item.east_m),
+    z: Number(item.down_m) * -1,
+  }));
+  return out;
 }
