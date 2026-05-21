@@ -61,13 +61,26 @@ export default function DrawPage() {
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0xf8fafc);
 
+        const maxCoordinate = Math.max(
+          ...currentMarkers.flatMap((m) => Math.abs(m.x) + m.length),
+          ...currentMarkers.flatMap((m) => Math.abs(m.y) + m.length),
+          ...currentMarkers.flatMap((m) => Math.abs(m.z) + m.length),
+          ...currentSetpoints.flatMap((s) => Math.abs(s.x)),
+          ...currentSetpoints.flatMap((s) => Math.abs(s.y)),
+          ...currentSetpoints.flatMap((s) => Math.abs(s.z)),
+          5
+        );
+
+        const centerX = maxCoordinate / 2;
+        const centerY = maxCoordinate / 2;
+
         const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
         camera.up.set(0, 0, 1);
-        camera.position.set(5, 5, 5);
-        camera.lookAt(0, 0, 0);
-
-        const size = 10;
-        const divisions = 20;
+        camera.position.set(centerX, centerY - maxCoordinate * 1.2, maxCoordinate);
+        camera.lookAt(centerX, centerY, 0);
+        
+        const size = maxCoordinate*2;
+        const divisions = maxCoordinate*2;
         const gridHelper = new THREE.GridHelper(size, divisions, 0x888888, 0xdddddd);
         gridHelper.rotation.x = Math.PI / 2;
         scene.add(gridHelper);
@@ -185,6 +198,11 @@ export default function DrawPage() {
 
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
+        try {
+          controls.target.set(centerX, centerY, 0);
+          controls.update();
+        } catch (e) {
+        }
 
         function onResize() {
           const w = mountRef.current?.clientWidth || 800;
