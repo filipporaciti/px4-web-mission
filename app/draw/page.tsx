@@ -1,7 +1,20 @@
 "use client";
-import { get } from "http";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+
+type Setpoint = {
+  x: number;
+  y: number;
+  z: number;
+};
+
+const setpoints: Setpoint[] = [
+  { x: -3, y: -2, z: 0.5 },
+  { x: -2, y: -1, z: 1.5 },
+  { x: -1, y: 0, z: 2.5 },
+  { x: 0, y: 1, z: 3 },
+  { x: 1, y: 2, z: 2.2 }
+];
 
 export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -38,10 +51,65 @@ export default function DrawPage() {
         gridHelper.rotation.x = Math.PI / 2;
         scene.add(gridHelper);
 
+        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.1);
+        directionalLight.position.set(6, 5, 8);
+        scene.add(directionalLight);
+
         const [xAxis, yAxis, zAxis] = getAxisLines(size/2);
         scene.add(xAxis);
         scene.add(yAxis);
         scene.add(zAxis);
+
+        const pointGeometry = new THREE.SphereGeometry(0.07, 18, 18);
+        const pointMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffff00
+        });
+        const labelTextures: THREE.CanvasTexture[] = [];
+
+        function createNumberLabelSprite(label: string) {
+          const canvas = document.createElement("canvas");
+          canvas.width = 64;
+          canvas.height = 64;
+
+          const context = canvas.getContext("2d");
+          if (!context) {
+            throw new Error("Unable to create canvas context for label");
+          }
+
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.beginPath();
+          context.arc(32, 32, 22, 0, Math.PI * 2);
+          context.fillStyle = "rgba(15, 23, 42, 0.9)";
+          context.fill();
+
+          context.font = "bold 27px sans-serif";
+          context.fillStyle = "#ffffff";
+          context.textAlign = "center";
+          context.textBaseline = "middle";
+          context.fillText(label, 32, 32);
+
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.needsUpdate = true;
+          labelTextures.push(texture);
+
+          const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+          });
+          const sprite = new THREE.Sprite(material);
+          sprite.scale.set(0.5, 0.5, 0.5);
+          return sprite;
+        }
+
+        setpoints.forEach((setpoint, index) => {
+          const point = new THREE.Mesh(pointGeometry, pointMaterial);
+          point.position.set(setpoint.x, setpoint.y, setpoint.z);
+          scene.add(point);
+          const label = createNumberLabelSprite(String(index + 1));
+          label.position.set(setpoint.x, setpoint.y, setpoint.z + 0.35);
+          scene.add(label);
+        });
 
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
@@ -68,6 +136,9 @@ export default function DrawPage() {
           mounted = false;
           window.removeEventListener("resize", onResize);
           controls.dispose();
+          pointGeometry.dispose();
+          pointMaterial.dispose();
+          labelTextures.forEach((texture) => texture.dispose());
           renderer.dispose();
           if (renderer.domElement && renderer.domElement.parentElement) {
             renderer.domElement.parentElement.removeChild(renderer.domElement);
