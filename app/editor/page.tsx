@@ -8,6 +8,26 @@ export default function EditorPage() {
   const [mode, setMode] = useState<Mode>("mission");
   const [missionText, setMissionText] = useState("");
   const [markerText, setMarkerText] = useState("");
+  const [isDark, setIsDark] = useState(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const mq = window.matchMedia(
+      "(prefers-color-scheme: dark)"
+    );
+
+    setIsDark(mq.matches);
+
+    mq.addEventListener("change", (evt) => setIsDark(evt.matches));
+  }, []);
 
   useEffect(() => {
     try {
@@ -47,14 +67,31 @@ export default function EditorPage() {
         <h1 className="text-lg font-semibold">{mode === "mission" ? "Mission editor" : "Marker editor"}</h1>
         <div className="ml-4 flex gap-2">
           <button
-            className={`px-3 py-1 rounded ${mode === "mission" ? "bg-gray-200" : "bg-white border"}`}
-            onClick={() => setMode("mission")}
+            className={`px-3 py-1 rounded ${
+              mode === 'mission'
+                ? isDark
+                  ? 'bg-gray-700 text-white'
+                  : 'bg-gray-200'
+                : isDark
+                ? 'bg-gray-900 border border-gray-700 text-gray-300'
+                : 'bg-white border'
+
+            }`}
+            onClick={() => setMode('mission')}
           >
             Mission
           </button>
           <button
-            className={`px-3 py-1 rounded ${mode === "marker" ? "bg-gray-200" : "bg-white border"}`}
-            onClick={() => setMode("marker")}
+            className={`px-3 py-1 rounded ${
+              mode === 'marker'
+                ? isDark
+                  ? 'bg-gray-700 text-white'
+                  : 'bg-gray-200'
+                : isDark
+                ? 'bg-gray-900 border border-gray-700 text-gray-300'
+                : 'bg-white border'
+            }`}
+            onClick={() => setMode('marker')}
           >
             Marker
           </button>

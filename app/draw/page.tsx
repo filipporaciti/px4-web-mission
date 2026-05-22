@@ -19,9 +19,23 @@ type Marker = {
 
 export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const gridRef = useRef<THREE.GridHelper | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const [setpoints, setSetpoints] = useState<Setpoint[]>([]);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [selectedSetpoint, setSelectedSetpoint] = useState<Setpoint | null>(null);
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return false;
+  });
+
 
   useEffect(() => {
     let mounted = true;
@@ -46,6 +60,14 @@ export default function DrawPage() {
       console.warn("Failed to parse saved content:", err);
     }
 
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    try {
+      setIsDark(mq.matches);
+    } catch (e) {
+      /* ignore */
+    }
+    mq.addEventListener("change", (evt) => setIsDark(evt.matches));
+
     async function init() {
       try {
         const { OrbitControls } = await import("three/examples/jsm/controls/OrbitControls.js");
@@ -59,9 +81,11 @@ export default function DrawPage() {
         renderer.setSize(width, height);
         renderer.setPixelRatio(window.devicePixelRatio || 1);
         mountRef.current!.appendChild(renderer.domElement);
+        rendererRef.current = renderer;
 
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0xf8fafc);
+        scene.background = new THREE.Color(isDark ? 0x0b1220 : 0xf8fafc);
+        sceneRef.current = scene;
 
         const maxCoordinate = Math.max(
           ...currentMarkers.flatMap((m) => Math.abs(m.x) + m.length),
@@ -83,9 +107,15 @@ export default function DrawPage() {
         
         const size = maxCoordinate*2;
         const divisions = maxCoordinate*2;
-        const gridHelper = new THREE.GridHelper(size, divisions, 0x888888, 0xdddddd);
+        const gridHelper = new THREE.GridHelper(
+          size,
+          divisions,
+          isDark ? 0x444444 : 0x888888,
+          isDark ? 0x222222 : 0xdddddd
+        );
         gridHelper.rotation.x = Math.PI / 2;
         scene.add(gridHelper);
+        gridRef.current = gridHelper;
 
         scene.add(new THREE.AmbientLight(0xffffff, 0.9));
         const directionalLight = new THREE.DirectionalLight(0xffffff, 1.1);
@@ -262,6 +292,18 @@ export default function DrawPage() {
           floorLabelMaterials.forEach((material) => material.dispose());
           labelTextures.forEach((texture) => texture.dispose());
           renderer.dispose();
+          try {
+            if (sceneRef.current && gridRef.current) {
+              try {
+                sceneRef.current.remove(gridRef.current);
+              } catch (e) {}
+              try { gridRef.current.geometry.dispose(); } catch (e) {}
+              try { /* @ts-ignore */ gridRef.current.material.dispose(); } catch (e) {}
+              gridRef.current = null;
+            }
+          } catch (e) {}
+          sceneRef.current = null;
+          rendererRef.current = null;
           if (renderer.domElement && renderer.domElement.parentElement) {
             renderer.domElement.parentElement.removeChild(renderer.domElement);
           }
@@ -275,21 +317,54 @@ export default function DrawPage() {
     return () => cleanup();
   }, []);
 
+  useEffect(() => {
+    // update scene background and grid colors when system theme changes
+    try {
+      const scene = sceneRef.current;
+      const oldGrid = gridRef.current;
+      if (scene) {
+        scene.background = new THREE.Color(isDark ? 0x0b1220 : 0xf8fafc);
+      }
+      if (scene && oldGrid) {
+        try {
+          scene.remove(oldGrid);
+        } catch (e) {}
+        try { oldGrid.geometry.dispose(); } catch (e) {}
+        try { /* @ts-ignore */ oldGrid.material.dispose(); } catch (e) {}
+        const size = (oldGrid as any)?.userData?.size ?? (Math.max(10, 10));
+        const divisions = (oldGrid as any)?.geometry?.parameters?.divisions ?? 10;
+        const newGrid = new THREE.GridHelper(
+          size,
+          divisions,
+          isDark ? 0x444444 : 0x888888,
+          isDark ? 0x222222 : 0xdddddd
+        );
+        newGrid.rotation.x = Math.PI / 2;
+        scene.add(newGrid);
+        gridRef.current = newGrid;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [isDark]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <h1 className="mb-2 text-lg font-semibold">Marker and setpoint floor</h1>
       <div className="relative min-h-0 flex-1 rounded border overflow-hidden">
         <div ref={mountRef} className="w-full h-[600px] border rounded" />
-        <InfoSidebar setPoint={selectedSetpoint} />
+        <InfoSidebar setPoint={selectedSetpoint} isDark={isDark} />
       </div>
     </div>
   );
 }
 
-function InfoSidebar({ setPoint }: { setPoint: Setpoint | null }) {
+function InfoSidebar({ setPoint, isDark }: { setPoint: Setpoint | null; isDark: boolean }) {
   return (
-    <aside className="absolute right-4 top-4 z-10 w-64 rounded border bg-white/95 p-4 shadow-sm backdrop-blur-sm">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Setpoint</h2>
+    <aside className={`absolute right-4 top-4 z-10 w-64 rounded border p-4 shadow-sm backdrop-blur-sm ${
+      isDark ? 'bg-slate-900/90 text-gray-100 border-gray-700' : 'bg-white/95 text-gray-800'
+    }`}>
+          <h2 className={`mb-3 text-sm font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-gray-500'}`}>Setpoint</h2>
           {setPoint ? (
             <div className="space-y-2 text-sm">
               <div>
