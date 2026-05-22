@@ -110,7 +110,7 @@ export default function EditorPage() {
         </div>
       </div>
 
-      <div className="relative flex-1 min-h-[300px]">
+      <div className="relative flex-1 min-h-0 overflow-auto">
         <CopyButton 
           status={copyStatus} 
           onClick={handleCopy} 
@@ -122,7 +122,7 @@ export default function EditorPage() {
           language="json"
           onChange={(e) => onChange(e.target.value)}
           placeholder={mode === "mission" ? "Write mission JSON here..." : "Write marker JSON here..."}
-          className="h-full w-full border rounded p-3 min-h-[300px]"
+          className="min-h-[300px] w-full border rounded p-3"
           padding={15}
           style={{
             fontSize: 14,
