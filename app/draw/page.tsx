@@ -10,6 +10,10 @@ export default function DrawPage() {
   const sceneRef = useRef<THREE.Scene | null>(null);
   const gridRef = useRef<THREE.GridHelper | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const setpointMeshMapRef = useRef<Map<number, THREE.Object3D>>(new Map());
+  const setpointLabelMapRef = useRef<Map<number, THREE.Object3D>>(new Map());
+  const markerMeshMapRef = useRef<Map<string, THREE.Object3D>>(new Map());
+  const markerLabelMapRef = useRef<Map<string, THREE.Object3D>>(new Map());
   const [setpointsData, setSetpointsData] = useState<SetpointsData>({ targets: [] });
   const [markersData, setMarkersData] = useState<MarkersData>({ position: [], marker_length: 0 });
   const [selectedSetpointIndex, setSelectedSetpointIndex] = useState<number>(-1);
@@ -192,11 +196,13 @@ export default function DrawPage() {
           point.userData = { kind: "setpoint", index, x: setpoint.north_m, y: setpoint.east_m, z: setpoint.down_m };
           scene.add(point);
           setpointPickables.push(point);
+          setpointMeshMapRef.current.set(index, point);
           const label = createNumberLabelSprite(String(index + 1));
           label.position.set(setpoint.north_m, setpoint.east_m, -setpoint.down_m + 0.35);
           label.userData = { kind: "setpoint", index, x: setpoint.north_m, y: setpoint.east_m, z: setpoint.down_m };
           scene.add(label);
           setpointPickables.push(label);
+          setpointLabelMapRef.current.set(index, label);
         });
 
         Object.entries(currentMarkers.position).forEach(([id, marker]) => {
@@ -210,9 +216,11 @@ export default function DrawPage() {
           const markerMesh = new THREE.Mesh(markerGeometry, markerMaterial);
           markerMesh.position.set(marker.x, marker.y, marker.z);
           scene.add(markerMesh);
+          markerMeshMapRef.current.set(id, markerMesh);
           const label = createFloorLabel(id);
           label.position.set(marker.x, marker.y, marker.z + 0.02);
           scene.add(label);
+          markerLabelMapRef.current.set(id, label);
         });
 
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -287,6 +295,10 @@ export default function DrawPage() {
               gridRef.current = null;
             }
           } catch (e) {}
+          try { setpointMeshMapRef.current.clear(); } catch (e) {}
+          try { setpointLabelMapRef.current.clear(); } catch (e) {}
+          try { markerMeshMapRef.current.clear(); } catch (e) {}
+          try { markerLabelMapRef.current.clear(); } catch (e) {}
           sceneRef.current = null;
           rendererRef.current = null;
           if (renderer.domElement && renderer.domElement.parentElement) {
@@ -333,42 +345,119 @@ export default function DrawPage() {
     }
   }, [isDark]);
 
+  useEffect(() => {
+    // update setpoint mesh positions when setpointsData changes
+    try {
+      const map = setpointMeshMapRef.current;
+      const labelMap = setpointLabelMapRef.current;
+      if (!map || map.size === 0) return;
+      setpointsData.targets.forEach((sp, i) => {
+        const m = map.get(i);
+        if (m) m.position.set(sp.north_m, sp.east_m, -sp.down_m);
+        const l = labelMap.get(i);
+        if (l) l.position.set(sp.north_m, sp.east_m, -sp.down_m + 0.35);
+      });
+    } catch (e) {
+      // ignore
+    }
+  }, [setpointsData]);
+
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <h1 className="mb-2 text-lg font-semibold">Marker and setpoint floor</h1>
       <div className="relative min-h-0 flex-1 rounded border overflow-hidden">
         <div ref={mountRef} className="w-full h-[600px] border rounded" />
-        <InfoSidebar setPoint={selectedSetpointIndex >= 0 ? setpointsData.targets[selectedSetpointIndex] : null} index={selectedSetpointIndex} isDark={isDark} />
+        <InfoSidebar
+          setPoint={selectedSetpointIndex >= 0 ? setpointsData.targets[selectedSetpointIndex] : null}
+          index={selectedSetpointIndex}
+          isDark={isDark}
+          onChange={(updated, idx) => {
+            setSetpointsData((prev) => {
+              const targets = prev.targets.slice();
+              if (idx >= 0 && idx < targets.length) targets[idx] = updated;
+              return { targets };
+            });
+          }}
+        />
       </div>
     </div>
   );
 }
+function InfoSidebar({ setPoint, index, isDark, onChange }: { setPoint: Setpoint | null; index: number; isDark: boolean; onChange: (s: Setpoint, i: number) => void }) {
+  const [local, setLocal] = useState<Setpoint | null>(setPoint);
+  const [inputs, setInputs] = useState<{ north_m: string; east_m: string; down_m: string }>({ north_m: '', east_m: '', down_m: '' });
+  const [valid, setValid] = useState<{ north_m: boolean; east_m: boolean; down_m: boolean }>({ north_m: true, east_m: true, down_m: true });
 
-function InfoSidebar({ setPoint, index, isDark }: { setPoint: Setpoint | null; index: number; isDark: boolean }) {
+  useEffect(() => {
+    setLocal(setPoint);
+    if (setPoint) {
+      setInputs({ north_m: String(setPoint.north_m), east_m: String(setPoint.east_m), down_m: String(setPoint.down_m) });
+      setValid({ north_m: true, east_m: true, down_m: true });
+    } else {
+      setInputs({ north_m: '', east_m: '', down_m: '' });
+      setValid({ north_m: true, east_m: true, down_m: true });
+    }
+  }, [setPoint]);
+
+  const updateInput = (field: keyof Setpoint, value: string) => {
+    if (!local) return;
+    setInputs((s) => ({ ...s, [field]: value }));
+    const normalized = value.replace(/,/g, '.').trim();
+    if (normalized === '') {
+      setValid((v) => ({ ...v, [field]: false }));
+      return;
+    }
+    const n = parseFloat(normalized);
+    if (Number.isFinite(n) && !normalized.endsWith('.')) {
+      setValid((v) => ({ ...v, [field]: true }));
+      const next = { ...local, [field]: n } as Setpoint;
+      setLocal(next);
+      try { onChange(next, index); } catch (e) { /* ignore */ }
+    } else {
+      setValid((v) => ({ ...v, [field]: false }));
+    }
+  };
+
   return (
-    <aside className={`absolute right-4 top-4 z-10 w-64 rounded border p-4 shadow-sm backdrop-blur-sm ${
+    <aside className={`absolute right-4 top-4 z-10 w-72 rounded border p-4 shadow-sm backdrop-blur-sm ${
       isDark ? 'bg-slate-900/90 text-gray-100 border-gray-700' : 'bg-white/95 text-gray-800'
     }`}>
-          <h2 className={`mb-3 text-sm font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-gray-500'}`}>Setpoint</h2>
-          {setPoint ? (
-            <div className="space-y-2 text-sm">
-              <div>
-                <span className="font-medium">Number:</span> {index + 1}
-              </div>
-              <div>
-                <span className="font-medium">north_m:</span> {setPoint.north_m.toFixed(2)}
-              </div>
-              <div>
-                <span className="font-medium">east_m:</span> {setPoint.east_m.toFixed(2)}
-              </div>
-              <div>
-                <span className="font-medium">down_m:</span> {setPoint.down_m.toFixed(2)}
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500">Click on a setpoint to see details</p>
-          )}
-        </aside>
+      <h2 className={`mb-3 text-sm font-semibold uppercase tracking-wide ${isDark ? 'text-gray-300' : 'text-gray-500'}`}>Setpoint</h2>
+      {local ? (
+        <div className="space-y-2 text-sm">
+          <div>
+            <span className="font-medium">Number:</span> {index + 1}
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 block">north_m</label>
+            <input
+              className={`w-full rounded p-1 text-sm border ${valid.north_m ? 'border-gray-200' : 'border-red-500'}`}
+              value={inputs.north_m}
+              onChange={(e) => updateInput('north_m', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 block">east_m</label>
+            <input
+              className={`w-full rounded p-1 text-sm border ${valid.east_m ? 'border-gray-200' : 'border-red-500'}`}
+              value={inputs.east_m}
+              onChange={(e) => updateInput('east_m', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 block">down_m</label>
+            <input
+              className={`w-full rounded p-1 text-sm border ${valid.down_m ? 'border-gray-200' : 'border-red-500'}`}
+              value={inputs.down_m}
+              onChange={(e) => updateInput('down_m', e.target.value)}
+            />
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500">Click on a setpoint to see details</p>
+      )}
+    </aside>
   );
 }
 
