@@ -1,48 +1,175 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-
-type Setpoint = {
-  x: number;
-  y: number;
-  z: number;
-};
-
-type Marker = {
-  id: string;
-  x: number;
-  y: number;
-  z: number;
-  length: number;
-};
+import { MarkersData, jsonToMarkersData } from "../utils/marker";
+import { jsonToSetpointsData, SetpointsData, Setpoint, setpointsDataToJson } from "../utils/setpoint";
+import { createFloorLabel, createNumberLabelSprite, threeObjectCleanup, getAxisLines, InfoSidebar, AddButton } from "./objects";
 
 export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const [setpoints, setSetpoints] = useState<Setpoint[]>([]);
-  const [markers, setMarkers] = useState<Marker[]>([]);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const gridRef = useRef<THREE.GridHelper | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const pointGeometryRef = useRef<THREE.SphereGeometry | null>(null);
+  const pointMaterialRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const setpointPickablesRef = useRef<THREE.Object3D[]>([]);
+  const setpointMeshMapRef = useRef<Map<number, THREE.Object3D>>(new Map());
+  const setpointLabelMapRef = useRef<Map<number, THREE.Object3D>>(new Map());
+  const markerMeshMapRef = useRef<Map<string, THREE.Object3D>>(new Map());
+  const markerLabelMapRef = useRef<Map<string, THREE.Object3D>>(new Map());
+  const [setpointsData, setSetpointsData] = useState<SetpointsData>({ targets: [] });
+  const [markersData, setMarkersData] = useState<MarkersData>({ position: [], marker_length: 0 });
+  const [selectedSetpointIndex, setSelectedSetpointIndex] = useState<number>(-1);
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return false;
+  });
+
+  const refresh3DGrid = () => {
+    const scene = sceneRef.current;
+    const currentGrid = gridRef.current;
+    if (!scene || !currentGrid) {
+      return;
+    }
+
+    const currentSetpoints = setpointsData.targets;
+    const currentMarkers = markersData;
+    const setpointMeshes = setpointMeshMapRef.current;
+    const setpointLabels = setpointLabelMapRef.current;
+    const markerMeshes = markerMeshMapRef.current;
+    const markerLabels = markerLabelMapRef.current;
+    const pointGeometry = pointGeometryRef.current;
+    const pointMaterial = pointMaterialRef.current;
+
+    currentSetpoints.forEach((sp, index) => {
+      const existingPoint = setpointMeshes.get(index);
+      if (existingPoint) {
+        existingPoint.position.set(sp.north_m, sp.east_m, -sp.down_m);
+        existingPoint.userData = { kind: "setpoint", index, x: sp.north_m, y: sp.east_m, z: sp.down_m };
+      } else if (pointGeometry && pointMaterial && scene) {
+        const newPoint = new THREE.Mesh(pointGeometry, pointMaterial);
+        newPoint.position.set(sp.north_m, sp.east_m, -sp.down_m);
+        newPoint.userData = { kind: "setpoint", index, x: sp.north_m, y: sp.east_m, z: sp.down_m };
+        scene.add(newPoint);
+        setpointMeshes.set(index, newPoint);
+        setpointPickablesRef.current.push(newPoint);
+      }
+
+      const existingLabel = setpointLabels.get(index);
+      if (existingLabel) {
+        existingLabel.position.set(sp.north_m, sp.east_m, -sp.down_m + 0.35);
+        existingLabel.userData = { kind: "setpoint", index, x: sp.north_m, y: sp.east_m, z: sp.down_m };
+      } else if (scene) {
+        const newLabel = createNumberLabelSprite(String(index + 1));
+        newLabel.position.set(sp.north_m, sp.east_m, -sp.down_m + 0.35);
+        newLabel.userData = { kind: "setpoint", index, x: sp.north_m, y: sp.east_m, z: sp.down_m };
+        scene.add(newLabel);
+        setpointLabels.set(index, newLabel);
+        setpointPickablesRef.current.push(newLabel);
+      }
+    });
+
+    Array.from(setpointMeshes.keys()).forEach((index) => {
+      if (index >= currentSetpoints.length) {
+        const mesh = setpointMeshes.get(index);
+        if (mesh) scene.remove(mesh);
+        setpointMeshes.delete(index);
+
+        const label = setpointLabels.get(index);
+        if (label) scene.remove(label);
+        setpointLabels.delete(index);
+      }
+    });
+
+    Object.entries(currentMarkers.position).forEach(([id, marker]) => {
+      const existingMarker = markerMeshes.get(id);
+      if (existingMarker) {
+        existingMarker.position.set(marker.x, marker.y, marker.z);
+      }
+
+      const existingLabel = markerLabels.get(id);
+      if (existingLabel) {
+        existingLabel.position.set(marker.x, marker.y, marker.z + 0.02);
+      }
+
+      if (!existingMarker || !existingLabel) {
+        return;
+      }
+    });
+
+    Array.from(markerMeshes.keys()).forEach((id) => {
+      if (!(id in currentMarkers.position)) {
+        const mesh = markerMeshes.get(id);
+        if (mesh) scene.remove(mesh);
+        markerMeshes.delete(id);
+
+        const label = markerLabels.get(id);
+        if (label) scene.remove(label);
+        markerLabels.delete(id);
+      }
+    });
+
+    const maxCoordinate = getMaxCoordinate(currentMarkers, currentSetpoints);
+    const nextSize = Math.max(2, Math.ceil(maxCoordinate * 2));
+    const nextDivisions = Math.max(2, Math.ceil(maxCoordinate * 2));
+    const currentSize = (currentGrid as any)?.userData?.size;
+    const currentDivisions = (currentGrid as any)?.userData?.divisions;
+
+    if (currentSize !== nextSize || currentDivisions !== nextDivisions) {
+      try {
+        scene.remove(currentGrid);
+      } catch (e) {}
+      try {
+        currentGrid.geometry.dispose();
+      } catch (e) {}
+      try {
+        /* @ts-ignore */ currentGrid.material.dispose();
+      } catch (e) {}
+
+      const newGrid = createGridHelper(nextSize, nextDivisions, isDark);
+      scene.add(newGrid);
+      gridRef.current = newGrid;
+    }
+  };
+
 
   useEffect(() => {
     let mounted = true;
     let cleanup = () => {};
 
-    let currentSetpoints: Setpoint[] = setpoints;
-    let currentMarkers: Marker[] = markers;
+    let currentSetpoints: Setpoint[] = setpointsData.targets;
+    let currentMarkers: MarkersData = markersData;
 
     try {
       const savedMission = typeof window !== "undefined" ? localStorage.getItem("editor-content-mission") : null;
       if (savedMission) {
-        currentSetpoints = parseSetpoints(savedMission);
-        setSetpoints(currentSetpoints);
+        const data = jsonToSetpointsData(savedMission);
+        currentSetpoints = data.targets;
+        setSetpointsData(data);
       }
 
       const savedMarker = typeof window !== "undefined" ? localStorage.getItem("editor-content-marker") : null;
       if (savedMarker) {
-        currentMarkers = parseMarkers(savedMarker);
-        setMarkers(currentMarkers);
+        currentMarkers = jsonToMarkersData(savedMarker);
+        setMarkersData(currentMarkers);
       }
     } catch (err) {
       console.warn("Failed to parse saved content:", err);
     }
+
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    try {
+      setIsDark(mq.matches);
+    } catch (e) {
+      /* ignore */
+    }
+    mq.addEventListener("change", (evt) => setIsDark(evt.matches));
 
     async function init() {
       try {
@@ -57,19 +184,14 @@ export default function DrawPage() {
         renderer.setSize(width, height);
         renderer.setPixelRatio(window.devicePixelRatio || 1);
         mountRef.current!.appendChild(renderer.domElement);
+        rendererRef.current = renderer;
 
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0xf8fafc);
+        scene.background = new THREE.Color(isDark ? 0x0b1220 : 0xf8fafc);
+        sceneRef.current = scene;
 
-        const maxCoordinate = Math.max(
-          ...currentMarkers.flatMap((m) => Math.abs(m.x) + m.length),
-          ...currentMarkers.flatMap((m) => Math.abs(m.y) + m.length),
-          ...currentMarkers.flatMap((m) => Math.abs(m.z) + m.length),
-          ...currentSetpoints.flatMap((s) => Math.abs(s.x)),
-          ...currentSetpoints.flatMap((s) => Math.abs(s.y)),
-          ...currentSetpoints.flatMap((s) => Math.abs(s.z)),
-          5
-        );
+        const markerLength = currentMarkers.marker_length;
+        const maxCoordinate = getMaxCoordinate(currentMarkers, currentSetpoints);
 
         const centerX = maxCoordinate / 2;
         const centerY = maxCoordinate / 2;
@@ -81,9 +203,9 @@ export default function DrawPage() {
         
         const size = maxCoordinate*2;
         const divisions = maxCoordinate*2;
-        const gridHelper = new THREE.GridHelper(size, divisions, 0x888888, 0xdddddd);
-        gridHelper.rotation.x = Math.PI / 2;
+        const gridHelper = createGridHelper(size, divisions, isDark);
         scene.add(gridHelper);
+        gridRef.current = gridHelper;
 
         scene.add(new THREE.AmbientLight(0xffffff, 0.9));
         const directionalLight = new THREE.DirectionalLight(0xffffff, 1.1);
@@ -99,101 +221,41 @@ export default function DrawPage() {
         const pointMaterial = new THREE.MeshStandardMaterial({
           color: 0xffff00
         });
-        const labelTextures: THREE.CanvasTexture[] = [];
-        const floorLabelGeometries: THREE.PlaneGeometry[] = [];
-        const floorLabelMaterials: THREE.MeshBasicMaterial[] = [];
-
-        function createNumberLabelSprite(label: string) {
-          const canvas = document.createElement("canvas");
-          canvas.width = 64;
-          canvas.height = 64;
-
-          const context = canvas.getContext("2d");
-          if (!context) {
-            throw new Error("Unable to create canvas context for label");
-          }
-
-          context.clearRect(0, 0, canvas.width, canvas.height);
-          context.beginPath();
-          context.arc(32, 32, 22, 0, Math.PI * 2);
-          context.fillStyle = "rgba(15, 23, 42, 0.9)";
-          context.fill();
-
-          context.font = "bold 27px sans-serif";
-          context.fillStyle = "#ffffff";
-          context.textAlign = "center";
-          context.textBaseline = "middle";
-          context.fillText(label, 32, 32);
-
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.needsUpdate = true;
-          labelTextures.push(texture);
-
-          const material = new THREE.SpriteMaterial({
-            map: texture,
-            transparent: true,
-          });
-          const sprite = new THREE.Sprite(material);
-          sprite.scale.set(0.5, 0.5, 0.5);
-          return sprite;
-        }
-
-        function createFloorLabel(label: string) {
-          const canvas = document.createElement("canvas");
-          canvas.width = 128;
-          canvas.height = 128;
-
-          const context = canvas.getContext("2d");
-          if (!context) {
-            throw new Error("Unable to create canvas context for label");
-          }
-
-          context.font = "bold 36px sans-serif";
-          context.fillStyle = "#ffffff";
-          context.textAlign = "center";
-          context.textBaseline = "middle";
-          context.fillText(label, 64, 64);
-
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.needsUpdate = true;
-          labelTextures.push(texture);
-
-          const material = new THREE.MeshBasicMaterial({
-            map: texture,
-            transparent: true,
-            depthWrite: false,
-          });
-          floorLabelMaterials.push(material);
-
-          const geometry = new THREE.PlaneGeometry(0.55, 0.55);
-          floorLabelGeometries.push(geometry);
-
-          return new THREE.Mesh(geometry, material);
-        }
+        pointGeometryRef.current = pointGeometry;
+        pointMaterialRef.current = pointMaterial;
+        setpointPickablesRef.current = [];
 
         currentSetpoints.forEach((setpoint, index) => {
           const point = new THREE.Mesh(pointGeometry, pointMaterial);
-          point.position.set(setpoint.x, setpoint.y, setpoint.z);
+          point.position.set(setpoint.north_m, setpoint.east_m, -setpoint.down_m);
+          point.userData = { kind: "setpoint", index, x: setpoint.north_m, y: setpoint.east_m, z: setpoint.down_m };
           scene.add(point);
+          setpointPickablesRef.current.push(point);
+          setpointMeshMapRef.current.set(index, point);
           const label = createNumberLabelSprite(String(index + 1));
-          label.position.set(setpoint.x, setpoint.y, setpoint.z + 0.35);
+          label.position.set(setpoint.north_m, setpoint.east_m, -setpoint.down_m + 0.35);
+          label.userData = { kind: "setpoint", index, x: setpoint.north_m, y: setpoint.east_m, z: setpoint.down_m };
           scene.add(label);
+          setpointPickablesRef.current.push(label);
+          setpointLabelMapRef.current.set(index, label);
         });
 
-        currentMarkers.forEach((marker) => {
+        Object.entries(currentMarkers.position).forEach(([id, marker]) => {
           const markerMaterial = new THREE.MeshStandardMaterial({
             color: 0xff00ff,
             transparent: true,
             opacity: 0.6,
           });
-          const markerGeometry = new THREE.BoxGeometry(marker.length, 0.03, marker.length);
+          const markerGeometry = new THREE.BoxGeometry(markerLength, 0.03, markerLength);
           markerGeometry.rotateX(Math.PI / 2);
           const markerMesh = new THREE.Mesh(markerGeometry, markerMaterial);
           markerMesh.position.set(marker.x, marker.y, marker.z);
           scene.add(markerMesh);
-          const label = createFloorLabel(marker.id);
+          markerMeshMapRef.current.set(id, markerMesh);
+          const label = createFloorLabel(id);
           label.position.set(marker.x, marker.y, marker.z + 0.02);
           scene.add(label);
+          markerLabelMapRef.current.set(id, label);
         });
 
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -203,6 +265,31 @@ export default function DrawPage() {
           controls.update();
         } catch (e) {
         }
+
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+
+        const onPointerDown = (event: MouseEvent) => {
+          const rect = renderer.domElement.getBoundingClientRect();
+          pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+          pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+
+          raycaster.setFromCamera(pointer, camera);
+          const hits = raycaster.intersectObjects(setpointPickablesRef.current, true);
+          const hit = hits.find((intersection) => intersection.object.userData?.kind === "setpoint");
+
+          if (!hit) {
+            // setSelectedSetpointIndex(-1);
+            return;
+          }
+
+          const data = hit.object.userData;
+          if (data?.kind === "setpoint") {
+            setSelectedSetpointIndex(data.index);
+          }
+        };
+
+        renderer.domElement.addEventListener("pointerdown", onPointerDown);
 
         function onResize() {
           const w = mountRef.current?.clientWidth || 800;
@@ -225,13 +312,31 @@ export default function DrawPage() {
         cleanup = () => {
           mounted = false;
           window.removeEventListener("resize", onResize);
+          renderer.domElement.removeEventListener("pointerdown", onPointerDown);
           controls.dispose();
           pointGeometry.dispose();
           pointMaterial.dispose();
-          floorLabelGeometries.forEach((geometry) => geometry.dispose());
-          floorLabelMaterials.forEach((material) => material.dispose());
-          labelTextures.forEach((texture) => texture.dispose());
+          pointGeometryRef.current = null;
+          pointMaterialRef.current = null;
+          setpointPickablesRef.current = [];
+          threeObjectCleanup();
           renderer.dispose();
+          try {
+            if (sceneRef.current && gridRef.current) {
+              try {
+                sceneRef.current.remove(gridRef.current);
+              } catch (e) {}
+              try { gridRef.current.geometry.dispose(); } catch (e) {}
+              try { /* @ts-ignore */ gridRef.current.material.dispose(); } catch (e) {}
+              gridRef.current = null;
+            }
+          } catch (e) {}
+          try { setpointMeshMapRef.current.clear(); } catch (e) {}
+          try { setpointLabelMapRef.current.clear(); } catch (e) {}
+          try { markerMeshMapRef.current.clear(); } catch (e) {}
+          try { markerLabelMapRef.current.clear(); } catch (e) {}
+          sceneRef.current = null;
+          rendererRef.current = null;
           if (renderer.domElement && renderer.domElement.parentElement) {
             renderer.domElement.parentElement.removeChild(renderer.domElement);
           }
@@ -245,63 +350,104 @@ export default function DrawPage() {
     return () => cleanup();
   }, []);
 
+  useEffect(() => {
+    // update scene background and grid colors when system theme changes
+    try {
+      const scene = sceneRef.current;
+      const oldGrid = gridRef.current;
+      if (scene) {
+        scene.background = new THREE.Color(isDark ? 0x0b1220 : 0xf8fafc);
+      }
+      if (scene && oldGrid) {
+        try {
+          scene.remove(oldGrid);
+        } catch (e) {}
+        try { oldGrid.geometry.dispose(); } catch (e) {}
+        try { /* @ts-ignore */ oldGrid.material.dispose(); } catch (e) {}
+        const size = (oldGrid as any)?.userData?.size ?? 10;
+        const divisions = (oldGrid as any)?.userData?.divisions ?? 10;
+        const newGrid = createGridHelper(size, divisions, isDark);
+        scene.add(newGrid);
+        gridRef.current = newGrid;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [isDark]);
+
+  useEffect(() => {
+    // refresh the 3D scene when mission or marker data changes
+    try {
+      refresh3DGrid();
+    } catch (e) {
+      // ignore
+    }
+  }, [setpointsData, markersData, isDark]);
+
+  useEffect(() => {
+    try {
+      if (setpointsData.targets.length !== 0) {
+        localStorage.setItem("editor-content-mission", setpointsDataToJson(setpointsData));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [setpointsData]);
+
+
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <h1 className="mb-2 text-lg font-semibold">Marker and setpoint floor</h1>
-      <div ref={mountRef} className="w-full h-[600px] border rounded" />
+      <div className="relative min-h-0 flex-1 rounded border overflow-hidden">
+        <div ref={mountRef} className="w-full h-[600px] border rounded" />
+        <InfoSidebar
+          setPoint={selectedSetpointIndex >= 0 ? setpointsData.targets[selectedSetpointIndex] : null}
+          index={selectedSetpointIndex}
+          isDark={isDark}
+          onChange={(updated, idx) => {
+            setSetpointsData((prev) => {
+              const targets = prev.targets.slice();
+              if (idx >= 0 && idx < targets.length) targets[idx] = updated;
+              return { targets };
+            });
+          }}
+        />
+        <AddButton 
+          onClick={() => {
+            setSetpointsData((prev) => {
+              const newSetpoint: Setpoint = { north_m: 0, east_m: 0, down_m: 0 };
+              return { targets: [...prev.targets, newSetpoint] };
+            });
+            setSelectedSetpointIndex(setpointsData.targets.length);
+          }}
+        />
+      </div>
     </div>
   );
 }
 
-function getAxisLines(size: number) {
-  const axisRadius = 0.03;
-
-  const xAxis = new THREE.Mesh(
-    new THREE.CylinderGeometry(axisRadius, axisRadius, size, 24),
-    new THREE.MeshBasicMaterial({ color: 0xff4d4d }),
+function createGridHelper(size: number, divisions: number, isDark: boolean): THREE.GridHelper {
+  const gridHelper = new THREE.GridHelper(
+    size,
+    divisions,
+    isDark ? 0x444444 : 0x888888,
+    isDark ? 0x222222 : 0xdddddd
   );
-  xAxis.rotation.z = Math.PI / 2;
-  xAxis.position.x = size / 2;
-
-  const yAxis = new THREE.Mesh(
-    new THREE.CylinderGeometry(axisRadius, axisRadius, size, 24),
-    new THREE.MeshBasicMaterial({ color: 0x4dff4d }),
-  );
-  yAxis.rotation.y = Math.PI / 2;
-  yAxis.position.y = size / 2;
-
-  const zAxis = new THREE.Mesh(
-    new THREE.CylinderGeometry(axisRadius, axisRadius, size, 24),
-    new THREE.MeshBasicMaterial({ color: 0x4d4dff }),
-  );
-  zAxis.rotation.x = Math.PI / 2;
-  zAxis.position.z = size / 2;
-  return [xAxis, yAxis, zAxis];
+  gridHelper.rotation.x = Math.PI / 2;
+  gridHelper.userData = { ...gridHelper.userData, size, divisions };
+  return gridHelper;
 }
 
-function parseMarkers(text: string): Marker[] {
-  const data = JSON.parse(text);
-  const length = Number(data.marker_length ?? data.length ?? 1);
-  const positions = data.position ?? {};
+function getMaxCoordinate(markersData: MarkersData, currentSetpoints: Setpoint[]): number {
+  const markerLength = markersData.marker_length;
+  const markers = Object.values(markersData.position);
+  const ris = Math.max(
+    ...markers.flatMap((m) => Math.abs(m.x) + markerLength),
+    ...markers.flatMap((m) => Math.abs(m.y) + markerLength),
 
-  console.log("Parsed marker data:", { length, positions });
-
-  return Object.entries(positions).map(([id, value]: [string, any]) => ({
-    id,
-    x: Number(value.x),
-    y: Number(value.y),
-    z: Number(value.z),
-    length: Number(length),
-  }));
-}
-
-function parseSetpoints(text: string): Setpoint[] {
-  const data = JSON.parse(text);
-  const targets = data.targets ?? [];
-  const out = targets.map((item: any) => ({
-    x: Number(item.north_m),
-    y: Number(item.east_m),
-    z: Number(item.down_m) * -1,
-  }));
-  return out;
+    ...currentSetpoints.flatMap((s) => Math.abs(s.north_m)),
+    ...currentSetpoints.flatMap((s) => Math.abs(s.east_m)),
+    5
+  );
+  return ris;
 }
