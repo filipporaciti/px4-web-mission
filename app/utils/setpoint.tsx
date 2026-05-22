@@ -15,3 +15,7 @@ export function jsonToSetpointsData(text: string): SetpointsData {
   const data = JSON.parse(text);
   return data as SetpointsData;
 }
+
+export function setpointsDataToJson(data: SetpointsData): string {
+  return JSON.stringify(data, null, 2);
+}

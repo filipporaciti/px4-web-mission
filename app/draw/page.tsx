@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { MarkersData, jsonToMarkersData } from "../utils/marker";
-import { jsonToSetpointsData, SetpointsData, Setpoint } from "../utils/setpoint";
+import { jsonToSetpointsData, SetpointsData, Setpoint, setpointsDataToJson } from "../utils/setpoint";
 
 
 export default function DrawPage() {
@@ -371,6 +371,16 @@ export default function DrawPage() {
       // ignore
     }
   }, [setpointsData, markersData, isDark]);
+
+  useEffect(() => {
+    try {
+      if (setpointsData.targets.length !== 0) {
+        localStorage.setItem("editor-content-mission", setpointsDataToJson(setpointsData));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [setpointsData]);
 
 
   return (
