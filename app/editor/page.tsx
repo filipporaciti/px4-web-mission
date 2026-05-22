@@ -8,6 +8,7 @@ export default function EditorPage() {
   const [mode, setMode] = useState<Mode>("mission");
   const [missionText, setMissionText] = useState("");
   const [markerText, setMarkerText] = useState("");
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [isDark, setIsDark] = useState(() => {
     try {
       if (typeof window !== 'undefined') {
@@ -61,6 +62,17 @@ export default function EditorPage() {
   const currentText = mode === "mission" ? missionText : markerText;
   const onChange = (v: string) => (mode === "mission" ? setMissionText(v) : setMarkerText(v));
 
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(currentText);
+      setCopyStatus("copied");
+      window.setTimeout(() => setCopyStatus("idle"), 1500);
+    } catch (e) {
+      setCopyStatus("error");
+      window.setTimeout(() => setCopyStatus("idle"), 1500);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col">
       <div className="mb-2 flex items-center gap-3">
@@ -98,18 +110,52 @@ export default function EditorPage() {
         </div>
       </div>
 
-      <CodeEditor
-        value={currentText}
-        language="json"
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={mode === "mission" ? "Write mission JSON here..." : "Write marker JSON here..."}
-        className="flex-1 w-full border rounded p-3 min-h-[300px]"
-        padding={15}
-        style={{
-          fontSize: 14,
-          fontFamily: 'ui-monospace,SFMono-Regular,SF Pro Text,Menlo,Monaco,Consolas,monospace',         
-        }}
-      />
+      <div className="relative flex-1 min-h-[300px]">
+        <CopyButton 
+          status={copyStatus} 
+          onClick={handleCopy} 
+          isDark={isDark} 
+        />
+
+        <CodeEditor
+          value={currentText}
+          language="json"
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={mode === "mission" ? "Write mission JSON here..." : "Write marker JSON here..."}
+          className="h-full w-full border rounded p-3 min-h-[300px]"
+          padding={15}
+          style={{
+            fontSize: 14,
+            fontFamily: 'ui-monospace,SFMono-Regular,SF Pro Text,Menlo,Monaco,Consolas,monospace',         
+          }}
+        />
+      </div>
     </div>
+  );
+}
+
+
+function CopyButton({ status, onClick, isDark }: { status: "idle" | "copied" | "error"; onClick: () => void; isDark: boolean }) {
+  return (
+    <button
+      className={`absolute right-3 top-3 z-10 rounded border px-3 py-2 shadow-sm transition-colors ${
+        isDark
+          ? 'bg-gray-900/95 border-gray-700 text-gray-200 hover:bg-gray-800'
+          : 'bg-white/95 border-gray-300 text-gray-700 hover:bg-gray-50'
+      }`}
+      onClick={onClick}
+      title="Copy content"
+      aria-label="Copy content"
+    >
+      <span className="flex items-center gap-2">
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+        <span className="text-xs font-medium">
+          {status === "copied" ? "Copied" : status === "error" ? "Failed" : "Copy"}
+        </span>
+      </span>
+    </button>
   );
 }
