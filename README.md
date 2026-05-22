@@ -2,4 +2,4 @@
 
 Mission and marker position editor/visualizer
 
-Available here: [px4-web-mission](https://github.com/filipporaciti/px4-web-mission.git)
+Available here: [px4-web-mission](https://filipporaciti.github.io/px4-web-mission/)
