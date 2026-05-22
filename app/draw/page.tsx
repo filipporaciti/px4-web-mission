@@ -2,22 +2,17 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { MarkersData, jsonToMarkersData } from "../utils/marker";
+import { jsonToSetpointsData, SetpointsData, Setpoint } from "../utils/setpoint";
 
-type Setpoint = {
-  index: number;
-  x: number;
-  y: number;
-  z: number;
-};
 
 export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const gridRef = useRef<THREE.GridHelper | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const [setpoints, setSetpoints] = useState<Setpoint[]>([]);
+  const [setpointsData, setSetpointsData] = useState<SetpointsData>({ targets: [] });
   const [markersData, setMarkersData] = useState<MarkersData>({ position: [], marker_length: 0 });
-  const [selectedSetpoint, setSelectedSetpoint] = useState<Setpoint | null>(null);
+  const [selectedSetpointIndex, setSelectedSetpointIndex] = useState<number>(-1);
   const [isDark, setIsDark] = useState<boolean>(() => {
     try {
       if (typeof window !== 'undefined') {
@@ -34,14 +29,15 @@ export default function DrawPage() {
     let mounted = true;
     let cleanup = () => {};
 
-    let currentSetpoints: Setpoint[] = setpoints;
+    let currentSetpoints: Setpoint[] = setpointsData.targets;
     let currentMarkers: MarkersData = markersData;
 
     try {
       const savedMission = typeof window !== "undefined" ? localStorage.getItem("editor-content-mission") : null;
       if (savedMission) {
-        currentSetpoints = parseSetpoints(savedMission);
-        setSetpoints(currentSetpoints);
+        const data = jsonToSetpointsData(savedMission);
+        currentSetpoints = data.targets;
+        setSetpointsData(data);
       }
 
       const savedMarker = typeof window !== "undefined" ? localStorage.getItem("editor-content-marker") : null;
@@ -192,13 +188,13 @@ export default function DrawPage() {
 
         currentSetpoints.forEach((setpoint, index) => {
           const point = new THREE.Mesh(pointGeometry, pointMaterial);
-          point.position.set(setpoint.x, setpoint.y, setpoint.z);
-          point.userData = { kind: "setpoint", index, x: setpoint.x, y: setpoint.y, z: setpoint.z };
+          point.position.set(setpoint.north_m, setpoint.east_m, -setpoint.down_m);
+          point.userData = { kind: "setpoint", index, x: setpoint.north_m, y: setpoint.east_m, z: setpoint.down_m };
           scene.add(point);
           setpointPickables.push(point);
           const label = createNumberLabelSprite(String(index + 1));
-          label.position.set(setpoint.x, setpoint.y, setpoint.z + 0.35);
-          label.userData = { kind: "setpoint", index, x: setpoint.x, y: setpoint.y, z: setpoint.z };
+          label.position.set(setpoint.north_m, setpoint.east_m, -setpoint.down_m + 0.35);
+          label.userData = { kind: "setpoint", index, x: setpoint.north_m, y: setpoint.east_m, z: setpoint.down_m };
           scene.add(label);
           setpointPickables.push(label);
         });
@@ -240,11 +236,14 @@ export default function DrawPage() {
           const hit = hits.find((intersection) => intersection.object.userData?.kind === "setpoint");
 
           if (!hit) {
+            // setSelectedSetpointIndex(-1);
             return;
           }
 
-          const data = hit.object.userData as Setpoint;
-          setSelectedSetpoint(data);
+          const data = hit.object.userData;
+          if (data?.kind === "setpoint") {
+            setSelectedSetpointIndex(data.index);
+          }
         };
 
         renderer.domElement.addEventListener("pointerdown", onPointerDown);
@@ -339,13 +338,13 @@ export default function DrawPage() {
       <h1 className="mb-2 text-lg font-semibold">Marker and setpoint floor</h1>
       <div className="relative min-h-0 flex-1 rounded border overflow-hidden">
         <div ref={mountRef} className="w-full h-[600px] border rounded" />
-        <InfoSidebar setPoint={selectedSetpoint} isDark={isDark} />
+        <InfoSidebar setPoint={selectedSetpointIndex >= 0 ? setpointsData.targets[selectedSetpointIndex] : null} index={selectedSetpointIndex} isDark={isDark} />
       </div>
     </div>
   );
 }
 
-function InfoSidebar({ setPoint, isDark }: { setPoint: Setpoint | null; isDark: boolean }) {
+function InfoSidebar({ setPoint, index, isDark }: { setPoint: Setpoint | null; index: number; isDark: boolean }) {
   return (
     <aside className={`absolute right-4 top-4 z-10 w-64 rounded border p-4 shadow-sm backdrop-blur-sm ${
       isDark ? 'bg-slate-900/90 text-gray-100 border-gray-700' : 'bg-white/95 text-gray-800'
@@ -354,16 +353,16 @@ function InfoSidebar({ setPoint, isDark }: { setPoint: Setpoint | null; isDark: 
           {setPoint ? (
             <div className="space-y-2 text-sm">
               <div>
-                <span className="font-medium">Number:</span> {setPoint.index + 1}
+                <span className="font-medium">Number:</span> {index + 1}
               </div>
               <div>
-                <span className="font-medium">x:</span> {setPoint.x.toFixed(2)}
+                <span className="font-medium">north_m:</span> {setPoint.north_m.toFixed(2)}
               </div>
               <div>
-                <span className="font-medium">y:</span> {setPoint.y.toFixed(2)}
+                <span className="font-medium">east_m:</span> {setPoint.east_m.toFixed(2)}
               </div>
               <div>
-                <span className="font-medium">z:</span> {setPoint.z.toFixed(2)}
+                <span className="font-medium">down_m:</span> {setPoint.down_m.toFixed(2)}
               </div>
             </div>
           ) : (
@@ -399,18 +398,6 @@ function getAxisLines(size: number) {
   return [xAxis, yAxis, zAxis];
 }
 
-function parseSetpoints(text: string): Setpoint[] {
-  const data = JSON.parse(text);
-  const targets = data.targets ?? [];
-  const out = Object.entries(targets).map(([index, value]: [string, any]) => ({
-    index: Number(index),
-    x: Number(value.north_m),
-    y: Number(value.east_m),
-    z: Number(value.down_m) * -1,
-  }));
-  return out;
-}
-
 function getMaxCoordinate(markersData: MarkersData, currentSetpoints: Setpoint[]): number {
   const markerLength = markersData.marker_length;
   const markers = Object.values(markersData.position);
@@ -419,9 +406,9 @@ function getMaxCoordinate(markersData: MarkersData, currentSetpoints: Setpoint[]
     ...markers.flatMap((m) => Math.abs(m.y) + markerLength),
     ...markers.flatMap((m) => Math.abs(m.z) + markerLength),
 
-    ...currentSetpoints.flatMap((s) => Math.abs(s.x)),
-    ...currentSetpoints.flatMap((s) => Math.abs(s.y)),
-    ...currentSetpoints.flatMap((s) => Math.abs(s.z)),
+    ...currentSetpoints.flatMap((s) => Math.abs(s.north_m)),
+    ...currentSetpoints.flatMap((s) => Math.abs(s.east_m)),
+    ...currentSetpoints.flatMap((s) => Math.abs(s.down_m)),
     5
   );
   return ris;
