@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { MarkersData, jsonToMarkersData } from "../utils/marker";
 
 type Setpoint = {
   index: number;
@@ -9,21 +10,13 @@ type Setpoint = {
   z: number;
 };
 
-type Marker = {
-  id: string;
-  x: number;
-  y: number;
-  z: number;
-  length: number;
-};
-
 export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const gridRef = useRef<THREE.GridHelper | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const [setpoints, setSetpoints] = useState<Setpoint[]>([]);
-  const [markers, setMarkers] = useState<Marker[]>([]);
+  const [markersData, setMarkersData] = useState<MarkersData>({ position: [], marker_length: 0 });
   const [selectedSetpoint, setSelectedSetpoint] = useState<Setpoint | null>(null);
   const [isDark, setIsDark] = useState<boolean>(() => {
     try {
@@ -42,7 +35,7 @@ export default function DrawPage() {
     let cleanup = () => {};
 
     let currentSetpoints: Setpoint[] = setpoints;
-    let currentMarkers: Marker[] = markers;
+    let currentMarkers: MarkersData = markersData;
 
     try {
       const savedMission = typeof window !== "undefined" ? localStorage.getItem("editor-content-mission") : null;
@@ -53,8 +46,8 @@ export default function DrawPage() {
 
       const savedMarker = typeof window !== "undefined" ? localStorage.getItem("editor-content-marker") : null;
       if (savedMarker) {
-        currentMarkers = parseMarkers(savedMarker);
-        setMarkers(currentMarkers);
+        currentMarkers = jsonToMarkersData(savedMarker);
+        setMarkersData(currentMarkers);
       }
     } catch (err) {
       console.warn("Failed to parse saved content:", err);
@@ -87,15 +80,8 @@ export default function DrawPage() {
         scene.background = new THREE.Color(isDark ? 0x0b1220 : 0xf8fafc);
         sceneRef.current = scene;
 
-        const maxCoordinate = Math.max(
-          ...currentMarkers.flatMap((m) => Math.abs(m.x) + m.length),
-          ...currentMarkers.flatMap((m) => Math.abs(m.y) + m.length),
-          ...currentMarkers.flatMap((m) => Math.abs(m.z) + m.length),
-          ...currentSetpoints.flatMap((s) => Math.abs(s.x)),
-          ...currentSetpoints.flatMap((s) => Math.abs(s.y)),
-          ...currentSetpoints.flatMap((s) => Math.abs(s.z)),
-          5
-        );
+        const markerLength = currentMarkers.marker_length;
+        const maxCoordinate = getMaxCoordinate(currentMarkers, currentSetpoints);
 
         const centerX = maxCoordinate / 2;
         const centerY = maxCoordinate / 2;
@@ -217,18 +203,18 @@ export default function DrawPage() {
           setpointPickables.push(label);
         });
 
-        currentMarkers.forEach((marker) => {
+        Object.entries(currentMarkers.position).forEach(([id, marker]) => {
           const markerMaterial = new THREE.MeshStandardMaterial({
             color: 0xff00ff,
             transparent: true,
             opacity: 0.6,
           });
-          const markerGeometry = new THREE.BoxGeometry(marker.length, 0.03, marker.length);
+          const markerGeometry = new THREE.BoxGeometry(markerLength, 0.03, markerLength);
           markerGeometry.rotateX(Math.PI / 2);
           const markerMesh = new THREE.Mesh(markerGeometry, markerMaterial);
           markerMesh.position.set(marker.x, marker.y, marker.z);
           scene.add(markerMesh);
-          const label = createFloorLabel(marker.id);
+          const label = createFloorLabel(id);
           label.position.set(marker.x, marker.y, marker.z + 0.02);
           scene.add(label);
         });
@@ -413,20 +399,6 @@ function getAxisLines(size: number) {
   return [xAxis, yAxis, zAxis];
 }
 
-function parseMarkers(text: string): Marker[] {
-  const data = JSON.parse(text);
-  const length = Number(data.marker_length ?? data.length ?? 1);
-  const positions = data.position ?? {};
-
-  return Object.entries(positions).map(([id, value]: [string, any]) => ({
-    id,
-    x: Number(value.x),
-    y: Number(value.y),
-    z: Number(value.z),
-    length: Number(length),
-  }));
-}
-
 function parseSetpoints(text: string): Setpoint[] {
   const data = JSON.parse(text);
   const targets = data.targets ?? [];
@@ -437,4 +409,20 @@ function parseSetpoints(text: string): Setpoint[] {
     z: Number(value.down_m) * -1,
   }));
   return out;
+}
+
+function getMaxCoordinate(markersData: MarkersData, currentSetpoints: Setpoint[]): number {
+  const markerLength = markersData.marker_length;
+  const markers = Object.values(markersData.position);
+  const ris = Math.max(
+    ...markers.flatMap((m) => Math.abs(m.x) + markerLength),
+    ...markers.flatMap((m) => Math.abs(m.y) + markerLength),
+    ...markers.flatMap((m) => Math.abs(m.z) + markerLength),
+
+    ...currentSetpoints.flatMap((s) => Math.abs(s.x)),
+    ...currentSetpoints.flatMap((s) => Math.abs(s.y)),
+    ...currentSetpoints.flatMap((s) => Math.abs(s.z)),
+    5
+  );
+  return ris;
 }
