@@ -93,13 +93,7 @@ export default function DrawPage() {
         
         const size = maxCoordinate*2;
         const divisions = maxCoordinate*2;
-        const gridHelper = new THREE.GridHelper(
-          size,
-          divisions,
-          isDark ? 0x444444 : 0x888888,
-          isDark ? 0x222222 : 0xdddddd
-        );
-        gridHelper.rotation.x = Math.PI / 2;
+        const gridHelper = createGridHelper(size, divisions, isDark);
         scene.add(gridHelper);
         gridRef.current = gridHelper;
 
@@ -328,15 +322,9 @@ export default function DrawPage() {
         } catch (e) {}
         try { oldGrid.geometry.dispose(); } catch (e) {}
         try { /* @ts-ignore */ oldGrid.material.dispose(); } catch (e) {}
-        const size = (oldGrid as any)?.userData?.size ?? (Math.max(10, 10));
-        const divisions = (oldGrid as any)?.geometry?.parameters?.divisions ?? 10;
-        const newGrid = new THREE.GridHelper(
-          size,
-          divisions,
-          isDark ? 0x444444 : 0x888888,
-          isDark ? 0x222222 : 0xdddddd
-        );
-        newGrid.rotation.x = Math.PI / 2;
+        const size = (oldGrid as any)?.userData?.size ?? 10;
+        const divisions = (oldGrid as any)?.userData?.divisions ?? 10;
+        const newGrid = createGridHelper(size, divisions, isDark);
         scene.add(newGrid);
         gridRef.current = newGrid;
       }
@@ -348,6 +336,8 @@ export default function DrawPage() {
   useEffect(() => {
     // update setpoint mesh positions when setpointsData changes
     try {
+      const scene = sceneRef.current;
+      const currentGrid = gridRef.current;
       const map = setpointMeshMapRef.current;
       const labelMap = setpointLabelMapRef.current;
       if (!map || map.size === 0) return;
@@ -357,10 +347,30 @@ export default function DrawPage() {
         const l = labelMap.get(i);
         if (l) l.position.set(sp.north_m, sp.east_m, -sp.down_m + 0.35);
       });
+
+      if (scene && currentGrid) {
+        const maxCoordinate = getMaxCoordinate(markersData, setpointsData.targets);
+        const nextSize = maxCoordinate*2;
+        const nextDivisions = maxCoordinate*2;
+        const currentSize = (currentGrid as any)?.userData?.size;
+        const currentDivisions = (currentGrid as any)?.userData?.divisions;
+
+        if (currentSize !== nextSize || currentDivisions !== nextDivisions) {
+          try {
+            scene.remove(currentGrid);
+          } catch (e) {}
+          try { currentGrid.geometry.dispose(); } catch (e) {}
+          try { /* @ts-ignore */ currentGrid.material.dispose(); } catch (e) {}
+
+          const newGrid = createGridHelper(nextSize, nextDivisions, isDark);
+          scene.add(newGrid);
+          gridRef.current = newGrid;
+        }
+      }
     } catch (e) {
       // ignore
     }
-  }, [setpointsData]);
+  }, [setpointsData, markersData, isDark]);
 
 
   return (
@@ -487,17 +497,27 @@ function getAxisLines(size: number) {
   return [xAxis, yAxis, zAxis];
 }
 
+function createGridHelper(size: number, divisions: number, isDark: boolean): THREE.GridHelper {
+  const gridHelper = new THREE.GridHelper(
+    size,
+    divisions,
+    isDark ? 0x444444 : 0x888888,
+    isDark ? 0x222222 : 0xdddddd
+  );
+  gridHelper.rotation.x = Math.PI / 2;
+  gridHelper.userData = { ...gridHelper.userData, size, divisions };
+  return gridHelper;
+}
+
 function getMaxCoordinate(markersData: MarkersData, currentSetpoints: Setpoint[]): number {
   const markerLength = markersData.marker_length;
   const markers = Object.values(markersData.position);
   const ris = Math.max(
     ...markers.flatMap((m) => Math.abs(m.x) + markerLength),
     ...markers.flatMap((m) => Math.abs(m.y) + markerLength),
-    ...markers.flatMap((m) => Math.abs(m.z) + markerLength),
 
     ...currentSetpoints.flatMap((s) => Math.abs(s.north_m)),
     ...currentSetpoints.flatMap((s) => Math.abs(s.east_m)),
-    ...currentSetpoints.flatMap((s) => Math.abs(s.down_m)),
     5
   );
   return ris;
