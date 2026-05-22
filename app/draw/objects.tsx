@@ -182,3 +182,14 @@ export function InfoSidebar({ setPoint, index, isDark, onChange }: { setPoint: S
     </aside>
   );
 }
+
+export function AddButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="absolute h-10 right-4 bottom-4 z-10 rounded-full bg-blue-600 text-white p-3 shadow-lg hover:bg-blue-700 flex items-center justify-center"
+    >
+      Add setpoint
+    </button>
+  );
+}

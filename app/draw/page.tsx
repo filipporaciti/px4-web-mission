@@ -3,13 +3,16 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { MarkersData, jsonToMarkersData } from "../utils/marker";
 import { jsonToSetpointsData, SetpointsData, Setpoint, setpointsDataToJson } from "../utils/setpoint";
-import { createFloorLabel, createNumberLabelSprite, threeObjectCleanup, getAxisLines, InfoSidebar } from "./objects";
+import { createFloorLabel, createNumberLabelSprite, threeObjectCleanup, getAxisLines, InfoSidebar, AddButton } from "./objects";
 
 export default function DrawPage() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const gridRef = useRef<THREE.GridHelper | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const pointGeometryRef = useRef<THREE.SphereGeometry | null>(null);
+  const pointMaterialRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const setpointPickablesRef = useRef<THREE.Object3D[]>([]);
   const setpointMeshMapRef = useRef<Map<number, THREE.Object3D>>(new Map());
   const setpointLabelMapRef = useRef<Map<number, THREE.Object3D>>(new Map());
   const markerMeshMapRef = useRef<Map<string, THREE.Object3D>>(new Map());
@@ -27,6 +30,113 @@ export default function DrawPage() {
     }
     return false;
   });
+
+  const refresh3DGrid = () => {
+    const scene = sceneRef.current;
+    const currentGrid = gridRef.current;
+    if (!scene || !currentGrid) {
+      return;
+    }
+
+    const currentSetpoints = setpointsData.targets;
+    const currentMarkers = markersData;
+    const setpointMeshes = setpointMeshMapRef.current;
+    const setpointLabels = setpointLabelMapRef.current;
+    const markerMeshes = markerMeshMapRef.current;
+    const markerLabels = markerLabelMapRef.current;
+    const pointGeometry = pointGeometryRef.current;
+    const pointMaterial = pointMaterialRef.current;
+
+    currentSetpoints.forEach((sp, index) => {
+      const existingPoint = setpointMeshes.get(index);
+      if (existingPoint) {
+        existingPoint.position.set(sp.north_m, sp.east_m, -sp.down_m);
+        existingPoint.userData = { kind: "setpoint", index, x: sp.north_m, y: sp.east_m, z: sp.down_m };
+      } else if (pointGeometry && pointMaterial && scene) {
+        const newPoint = new THREE.Mesh(pointGeometry, pointMaterial);
+        newPoint.position.set(sp.north_m, sp.east_m, -sp.down_m);
+        newPoint.userData = { kind: "setpoint", index, x: sp.north_m, y: sp.east_m, z: sp.down_m };
+        scene.add(newPoint);
+        setpointMeshes.set(index, newPoint);
+        setpointPickablesRef.current.push(newPoint);
+      }
+
+      const existingLabel = setpointLabels.get(index);
+      if (existingLabel) {
+        existingLabel.position.set(sp.north_m, sp.east_m, -sp.down_m + 0.35);
+        existingLabel.userData = { kind: "setpoint", index, x: sp.north_m, y: sp.east_m, z: sp.down_m };
+      } else if (scene) {
+        const newLabel = createNumberLabelSprite(String(index + 1));
+        newLabel.position.set(sp.north_m, sp.east_m, -sp.down_m + 0.35);
+        newLabel.userData = { kind: "setpoint", index, x: sp.north_m, y: sp.east_m, z: sp.down_m };
+        scene.add(newLabel);
+        setpointLabels.set(index, newLabel);
+        setpointPickablesRef.current.push(newLabel);
+      }
+    });
+
+    Array.from(setpointMeshes.keys()).forEach((index) => {
+      if (index >= currentSetpoints.length) {
+        const mesh = setpointMeshes.get(index);
+        if (mesh) scene.remove(mesh);
+        setpointMeshes.delete(index);
+
+        const label = setpointLabels.get(index);
+        if (label) scene.remove(label);
+        setpointLabels.delete(index);
+      }
+    });
+
+    Object.entries(currentMarkers.position).forEach(([id, marker]) => {
+      const existingMarker = markerMeshes.get(id);
+      if (existingMarker) {
+        existingMarker.position.set(marker.x, marker.y, marker.z);
+      }
+
+      const existingLabel = markerLabels.get(id);
+      if (existingLabel) {
+        existingLabel.position.set(marker.x, marker.y, marker.z + 0.02);
+      }
+
+      if (!existingMarker || !existingLabel) {
+        return;
+      }
+    });
+
+    Array.from(markerMeshes.keys()).forEach((id) => {
+      if (!(id in currentMarkers.position)) {
+        const mesh = markerMeshes.get(id);
+        if (mesh) scene.remove(mesh);
+        markerMeshes.delete(id);
+
+        const label = markerLabels.get(id);
+        if (label) scene.remove(label);
+        markerLabels.delete(id);
+      }
+    });
+
+    const maxCoordinate = getMaxCoordinate(currentMarkers, currentSetpoints);
+    const nextSize = Math.max(2, Math.ceil(maxCoordinate * 2));
+    const nextDivisions = Math.max(2, Math.ceil(maxCoordinate * 2));
+    const currentSize = (currentGrid as any)?.userData?.size;
+    const currentDivisions = (currentGrid as any)?.userData?.divisions;
+
+    if (currentSize !== nextSize || currentDivisions !== nextDivisions) {
+      try {
+        scene.remove(currentGrid);
+      } catch (e) {}
+      try {
+        currentGrid.geometry.dispose();
+      } catch (e) {}
+      try {
+        /* @ts-ignore */ currentGrid.material.dispose();
+      } catch (e) {}
+
+      const newGrid = createGridHelper(nextSize, nextDivisions, isDark);
+      scene.add(newGrid);
+      gridRef.current = newGrid;
+    }
+  };
 
 
   useEffect(() => {
@@ -111,20 +221,22 @@ export default function DrawPage() {
         const pointMaterial = new THREE.MeshStandardMaterial({
           color: 0xffff00
         });
-        const setpointPickables: THREE.Object3D[] = [];
+        pointGeometryRef.current = pointGeometry;
+        pointMaterialRef.current = pointMaterial;
+        setpointPickablesRef.current = [];
 
         currentSetpoints.forEach((setpoint, index) => {
           const point = new THREE.Mesh(pointGeometry, pointMaterial);
           point.position.set(setpoint.north_m, setpoint.east_m, -setpoint.down_m);
           point.userData = { kind: "setpoint", index, x: setpoint.north_m, y: setpoint.east_m, z: setpoint.down_m };
           scene.add(point);
-          setpointPickables.push(point);
+          setpointPickablesRef.current.push(point);
           setpointMeshMapRef.current.set(index, point);
           const label = createNumberLabelSprite(String(index + 1));
           label.position.set(setpoint.north_m, setpoint.east_m, -setpoint.down_m + 0.35);
           label.userData = { kind: "setpoint", index, x: setpoint.north_m, y: setpoint.east_m, z: setpoint.down_m };
           scene.add(label);
-          setpointPickables.push(label);
+          setpointPickablesRef.current.push(label);
           setpointLabelMapRef.current.set(index, label);
         });
 
@@ -163,7 +275,7 @@ export default function DrawPage() {
           pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
 
           raycaster.setFromCamera(pointer, camera);
-          const hits = raycaster.intersectObjects(setpointPickables, true);
+          const hits = raycaster.intersectObjects(setpointPickablesRef.current, true);
           const hit = hits.find((intersection) => intersection.object.userData?.kind === "setpoint");
 
           if (!hit) {
@@ -204,6 +316,9 @@ export default function DrawPage() {
           controls.dispose();
           pointGeometry.dispose();
           pointMaterial.dispose();
+          pointGeometryRef.current = null;
+          pointMaterialRef.current = null;
+          setpointPickablesRef.current = [];
           threeObjectCleanup();
           renderer.dispose();
           try {
@@ -261,39 +376,9 @@ export default function DrawPage() {
   }, [isDark]);
 
   useEffect(() => {
-    // update setpoint mesh positions when setpointsData changes
+    // refresh the 3D scene when mission or marker data changes
     try {
-      const scene = sceneRef.current;
-      const currentGrid = gridRef.current;
-      const map = setpointMeshMapRef.current;
-      const labelMap = setpointLabelMapRef.current;
-      if (!map || map.size === 0) return;
-      setpointsData.targets.forEach((sp, i) => {
-        const m = map.get(i);
-        if (m) m.position.set(sp.north_m, sp.east_m, -sp.down_m);
-        const l = labelMap.get(i);
-        if (l) l.position.set(sp.north_m, sp.east_m, -sp.down_m + 0.35);
-      });
-
-      if (scene && currentGrid) {
-        const maxCoordinate = getMaxCoordinate(markersData, setpointsData.targets);
-        const nextSize = maxCoordinate*2;
-        const nextDivisions = maxCoordinate*2;
-        const currentSize = (currentGrid as any)?.userData?.size;
-        const currentDivisions = (currentGrid as any)?.userData?.divisions;
-
-        if (currentSize !== nextSize || currentDivisions !== nextDivisions) {
-          try {
-            scene.remove(currentGrid);
-          } catch (e) {}
-          try { currentGrid.geometry.dispose(); } catch (e) {}
-          try { /* @ts-ignore */ currentGrid.material.dispose(); } catch (e) {}
-
-          const newGrid = createGridHelper(nextSize, nextDivisions, isDark);
-          scene.add(newGrid);
-          gridRef.current = newGrid;
-        }
-      }
+      refresh3DGrid();
     } catch (e) {
       // ignore
     }
@@ -325,6 +410,15 @@ export default function DrawPage() {
               if (idx >= 0 && idx < targets.length) targets[idx] = updated;
               return { targets };
             });
+          }}
+        />
+        <AddButton 
+          onClick={() => {
+            setSetpointsData((prev) => {
+              const newSetpoint: Setpoint = { north_m: 0, east_m: 0, down_m: 0 };
+              return { targets: [...prev.targets, newSetpoint] };
+            });
+            setSelectedSetpointIndex(setpointsData.targets.length);
           }}
         />
       </div>
