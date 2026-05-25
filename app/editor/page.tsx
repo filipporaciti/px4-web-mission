@@ -73,6 +73,21 @@ export default function EditorPage() {
     }
   };
 
+  const handleDownload = () => {
+    try {
+      const filename = mode + ".json";
+      const blob = new Blob([currentText], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error("Failed to download editor content", e);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col">
       <div className="mb-2 flex items-center gap-3">
@@ -111,11 +126,17 @@ export default function EditorPage() {
       </div>
 
       <div className="relative flex-1 min-h-0 overflow-auto">
-        <CopyButton 
-          status={copyStatus} 
-          onClick={handleCopy} 
-          isDark={isDark} 
-        />
+        <div className="absolute right-3 top-3 z-10 flex gap-2">
+          <CopyButton
+            status={copyStatus}
+            onClick={handleCopy}
+            isDark={isDark}
+          />
+          <DownloadButton
+            onClick={handleDownload}
+            isDark={isDark}
+          />
+        </div>
 
         <CodeEditor
           value={currentText}
@@ -135,10 +156,32 @@ export default function EditorPage() {
 }
 
 
+function DownloadButton({ onClick, isDark }: { onClick: () => void; isDark: boolean }) {
+  return (
+    <button
+      className={`rounded border p-2 shadow-sm transition-colors ${
+        isDark
+          ? 'bg-gray-900/95 border-gray-700 text-gray-200 hover:bg-gray-800'
+          : 'bg-white/95 border-gray-300 text-gray-700 hover:bg-gray-50'
+      }`}
+      onClick={onClick}
+      title="Download content"
+      aria-label="Download content"
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 3v12" />
+        <path d="m7 10 5 5 5-5" />
+        <path d="M5 21h14" />
+      </svg>
+    </button>
+  );
+}
+
+
 function CopyButton({ status, onClick, isDark }: { status: "idle" | "copied" | "error"; onClick: () => void; isDark: boolean }) {
   return (
     <button
-      className={`absolute right-3 top-3 z-10 rounded border px-3 py-2 shadow-sm transition-colors ${
+      className={`rounded border px-3 py-2 shadow-sm transition-colors ${
         isDark
           ? 'bg-gray-900/95 border-gray-700 text-gray-200 hover:bg-gray-800'
           : 'bg-white/95 border-gray-300 text-gray-700 hover:bg-gray-50'
