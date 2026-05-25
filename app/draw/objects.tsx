@@ -108,30 +108,46 @@ export function getAxisLines(size: number) {
 
 export function InfoSidebar({ setPoint, index, isDark, onChange }: { setPoint: Setpoint | null; index: number; isDark: boolean; onChange: (s: Setpoint, i: number) => void }) {
   const [local, setLocal] = useState<Setpoint | null>(setPoint);
-  const [inputs, setInputs] = useState<{ north_m: string; east_m: string; down_m: string }>({ north_m: '', east_m: '', down_m: '' });
-  const [valid, setValid] = useState<{ north_m: boolean; east_m: boolean; down_m: boolean }>({ north_m: true, east_m: true, down_m: true });
+  const [inputs, setInputs] = useState<{ north_m: string; east_m: string; down_m: string; yaw_deg: string }>({ north_m: '', east_m: '', down_m: '', yaw_deg: '' });
+  const [valid, setValid] = useState<{ north_m: boolean; east_m: boolean; down_m: boolean; yaw_deg: boolean }>({ north_m: true, east_m: true, down_m: true, yaw_deg: true });
+  const [hasYaw, setHasYaw] = useState<boolean>(Boolean(setPoint?.yaw_deg));
 
   useEffect(() => {
     setLocal(setPoint);
     if (setPoint) {
-      setInputs({ north_m: String(setPoint.north_m), east_m: String(setPoint.east_m), down_m: String(setPoint.down_m) });
-      setValid({ north_m: true, east_m: true, down_m: true });
+      setInputs({ north_m: String(setPoint.north_m), east_m: String(setPoint.east_m), down_m: String(setPoint.down_m), yaw_deg: setPoint.yaw_deg !== undefined ? String(setPoint.yaw_deg) : '' });
+      setValid({ north_m: true, east_m: true, down_m: true, yaw_deg: true });
+      setHasYaw(setPoint.yaw_deg !== undefined);
     } else {
-      setInputs({ north_m: '', east_m: '', down_m: '' });
-      setValid({ north_m: true, east_m: true, down_m: true });
+      setInputs({ north_m: '', east_m: '', down_m: '', yaw_deg: '' });
+      setValid({ north_m: true, east_m: true, down_m: true, yaw_deg: true });
+      setHasYaw(false);
     }
   }, [setPoint]);
 
-  const updateInput = (field: keyof Setpoint, value: string) => {
+  const updateInput = (field: keyof Setpoint, value: string, removeWhenEmpty = false) => {
     if (!local) return;
     setInputs((s) => ({ ...s, [field]: value }));
     const normalized = value.replace(/,/g, '.').trim();
     if (normalized === '') {
+      if (field === 'yaw_deg' && removeWhenEmpty) {
+        const next = { ...local } as Setpoint;
+        delete next.yaw_deg;
+        setHasYaw(false);
+        setValid((v) => ({ ...v, [field]: true }));
+        setLocal(next);
+        try { onChange(next, index); } catch (e) { /* ignore */ }
+        return;
+      }
+
       setValid((v) => ({ ...v, [field]: false }));
       return;
     }
     const n = parseFloat(normalized);
     if (Number.isFinite(n) && !normalized.endsWith('.')) {
+      if (field === 'yaw_deg') {
+        setHasYaw(true);
+      }
       setValid((v) => ({ ...v, [field]: true }));
       const next = { ...local, [field]: n } as Setpoint;
       setLocal(next);
@@ -139,6 +155,17 @@ export function InfoSidebar({ setPoint, index, isDark, onChange }: { setPoint: S
     } else {
       setValid((v) => ({ ...v, [field]: false }));
     }
+  };
+
+  const toggleYaw = () => {
+    if (!local) return;
+
+    if (hasYaw) {
+      updateInput('yaw_deg', '', true);
+      return;
+    }
+
+    updateInput('yaw_deg', String('0'));
   };
 
   return (
@@ -174,6 +201,23 @@ export function InfoSidebar({ setPoint, index, isDark, onChange }: { setPoint: S
               value={inputs.down_m}
               onChange={(e) => updateInput('down_m', e.target.value)}
             />
+          </div>
+          <div className="pt-1">
+            <label className="flex items-center gap-2 text-xs text-gray-400">
+              <input
+                type="checkbox"
+                checked={hasYaw}
+                onChange={toggleYaw}
+              />
+              yaw_deg
+            </label>
+            {hasYaw ? (
+              <input
+                className={`mt-2 w-full rounded p-1 text-sm border ${valid.yaw_deg ? 'border-gray-200' : 'border-red-500'}`}
+                value={inputs.yaw_deg}
+                onChange={(e) => updateInput('yaw_deg', e.target.value)}
+              />
+            ) : null}
           </div>
         </div>
       ) : (
