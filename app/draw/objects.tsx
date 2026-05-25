@@ -178,30 +178,24 @@ export function InfoSidebar({ setPoint, index, isDark, onChange }: { setPoint: S
           <div>
             <span className="font-medium">Number:</span> {index + 1}
           </div>
-          <div>
-            <label className="text-xs text-gray-400 block">north_m</label>
-            <input
-              className={`w-full rounded p-1 text-sm border ${valid.north_m ? 'border-gray-200' : 'border-red-500'}`}
-              value={inputs.north_m}
-              onChange={(e) => updateInput('north_m', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block">east_m</label>
-            <input
-              className={`w-full rounded p-1 text-sm border ${valid.east_m ? 'border-gray-200' : 'border-red-500'}`}
-              value={inputs.east_m}
-              onChange={(e) => updateInput('east_m', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block">down_m</label>
-            <input
-              className={`w-full rounded p-1 text-sm border ${valid.down_m ? 'border-gray-200' : 'border-red-500'}`}
-              value={inputs.down_m}
-              onChange={(e) => updateInput('down_m', e.target.value)}
-            />
-          </div>
+          <InputValue 
+            label="north_m" 
+            value={inputs.north_m} 
+            valid={valid.north_m} 
+            onChange={(v) => updateInput('north_m', v)} 
+          />
+          <InputValue 
+            label="east_m" 
+            value={inputs.east_m} 
+            valid={valid.east_m} 
+            onChange={(v) => updateInput('east_m', v)} 
+          />
+          <InputValue 
+            label="down_m" 
+            value={inputs.down_m} 
+            valid={valid.down_m} 
+            onChange={(v) => updateInput('down_m', v)} 
+          />
           <div className="pt-1">
             <label className="flex items-center gap-2 text-xs text-gray-400">
               <input
@@ -235,5 +229,18 @@ export function AddButton({ onClick }: { onClick: () => void }) {
     >
       Add setpoint
     </button>
+  );
+}
+
+function InputValue({ label, value, valid, onChange }: { label: string; value: string; valid: boolean; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="text-xs text-gray-400 block">{label}</label>
+      <input
+        className={`w-full rounded p-1 text-sm border ${valid ? 'border-gray-200' : 'border-red-500'}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
   );
 }
