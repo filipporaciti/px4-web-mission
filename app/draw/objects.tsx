@@ -108,30 +108,61 @@ export function getAxisLines(size: number) {
 
 export function InfoSidebar({ setPoint, index, isDark, onChange }: { setPoint: Setpoint | null; index: number; isDark: boolean; onChange: (s: Setpoint, i: number) => void }) {
   const [local, setLocal] = useState<Setpoint | null>(setPoint);
-  const [inputs, setInputs] = useState<{ north_m: string; east_m: string; down_m: string }>({ north_m: '', east_m: '', down_m: '' });
-  const [valid, setValid] = useState<{ north_m: boolean; east_m: boolean; down_m: boolean }>({ north_m: true, east_m: true, down_m: true });
+  const [inputs, setInputs] = useState<{ north_m: string; east_m: string; down_m: string; yaw_deg: string; hover_time_ms: string }>({ north_m: '', east_m: '', down_m: '', yaw_deg: '', hover_time_ms: '' });
+  const [valid, setValid] = useState<{ north_m: boolean; east_m: boolean; down_m: boolean; yaw_deg: boolean; hover_time_ms: boolean }>({ north_m: true, east_m: true, down_m: true, yaw_deg: true, hover_time_ms: true });
+  const [hasYaw, setHasYaw] = useState<boolean>(Boolean(setPoint?.yaw_deg));
+  const [hasHoverTime, setHasHoverTime] = useState<boolean>(Boolean(setPoint?.hover_time_ms));
 
   useEffect(() => {
     setLocal(setPoint);
     if (setPoint) {
-      setInputs({ north_m: String(setPoint.north_m), east_m: String(setPoint.east_m), down_m: String(setPoint.down_m) });
-      setValid({ north_m: true, east_m: true, down_m: true });
+      setInputs({ north_m: String(setPoint.north_m), east_m: String(setPoint.east_m), down_m: String(setPoint.down_m), yaw_deg: setPoint.yaw_deg !== undefined ? String(setPoint.yaw_deg) : '', hover_time_ms: setPoint.hover_time_ms !== undefined ? String(setPoint.hover_time_ms) : '' });
+      setValid({ north_m: true, east_m: true, down_m: true, yaw_deg: true, hover_time_ms: true });
+      setHasYaw(setPoint.yaw_deg !== undefined);
+      setHasHoverTime(setPoint.hover_time_ms !== undefined);
     } else {
-      setInputs({ north_m: '', east_m: '', down_m: '' });
-      setValid({ north_m: true, east_m: true, down_m: true });
+      setInputs({ north_m: '', east_m: '', down_m: '', yaw_deg: '', hover_time_ms: '' });
+      setValid({ north_m: true, east_m: true, down_m: true, yaw_deg: true, hover_time_ms: true });
+      setHasYaw(false);
+      setHasHoverTime(false);
     }
   }, [setPoint]);
 
-  const updateInput = (field: keyof Setpoint, value: string) => {
+  const updateInput = (field: keyof Setpoint, value: string, removeWhenEmpty = false) => {
     if (!local) return;
     setInputs((s) => ({ ...s, [field]: value }));
     const normalized = value.replace(/,/g, '.').trim();
     if (normalized === '') {
+      if (field === 'yaw_deg' && removeWhenEmpty) {
+        const next = { ...local } as Setpoint;
+        delete next.yaw_deg;
+        setHasYaw(false);
+        setValid((v) => ({ ...v, [field]: true }));
+        setLocal(next);
+        try { onChange(next, index); } catch (e) { /* ignore */ }
+        return;
+      }
+      if (field === 'hover_time_ms' && removeWhenEmpty) {
+        const next = { ...local } as Setpoint;
+        delete next.hover_time_ms;
+        setHasHoverTime(false);
+        setValid((v) => ({ ...v, [field]: true }));
+        setLocal(next);
+        try { onChange(next, index); } catch (e) { /* ignore */ }
+        return;
+      }
+
       setValid((v) => ({ ...v, [field]: false }));
       return;
     }
     const n = parseFloat(normalized);
     if (Number.isFinite(n) && !normalized.endsWith('.')) {
+      if (field === 'yaw_deg') {
+        setHasYaw(true);
+      }
+      if (field === 'hover_time_ms') {
+        setHasHoverTime(true);
+      }
       setValid((v) => ({ ...v, [field]: true }));
       const next = { ...local, [field]: n } as Setpoint;
       setLocal(next);
@@ -139,6 +170,28 @@ export function InfoSidebar({ setPoint, index, isDark, onChange }: { setPoint: S
     } else {
       setValid((v) => ({ ...v, [field]: false }));
     }
+  };
+
+  const toggleYaw = () => {
+    if (!local) return;
+
+    if (hasYaw) {
+      updateInput('yaw_deg', '', true);
+      return;
+    }
+
+    updateInput('yaw_deg', String('0'));
+  };
+
+  const toggleHoverTime = () => {
+    if (!local) return;
+
+    if (hasHoverTime) {
+      updateInput('hover_time_ms', '', true);
+      return;
+    }
+
+    updateInput('hover_time_ms', String('1000'));
   };
 
   return (
@@ -151,30 +204,40 @@ export function InfoSidebar({ setPoint, index, isDark, onChange }: { setPoint: S
           <div>
             <span className="font-medium">Number:</span> {index + 1}
           </div>
-          <div>
-            <label className="text-xs text-gray-400 block">north_m</label>
-            <input
-              className={`w-full rounded p-1 text-sm border ${valid.north_m ? 'border-gray-200' : 'border-red-500'}`}
-              value={inputs.north_m}
-              onChange={(e) => updateInput('north_m', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block">east_m</label>
-            <input
-              className={`w-full rounded p-1 text-sm border ${valid.east_m ? 'border-gray-200' : 'border-red-500'}`}
-              value={inputs.east_m}
-              onChange={(e) => updateInput('east_m', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block">down_m</label>
-            <input
-              className={`w-full rounded p-1 text-sm border ${valid.down_m ? 'border-gray-200' : 'border-red-500'}`}
-              value={inputs.down_m}
-              onChange={(e) => updateInput('down_m', e.target.value)}
-            />
-          </div>
+          <InputValue 
+            label="north_m" 
+            value={inputs.north_m} 
+            valid={valid.north_m} 
+            onChange={(v) => updateInput('north_m', v)} 
+          />
+          <InputValue 
+            label="east_m" 
+            value={inputs.east_m} 
+            valid={valid.east_m} 
+            onChange={(v) => updateInput('east_m', v)} 
+          />
+          <InputValue 
+            label="down_m" 
+            value={inputs.down_m} 
+            valid={valid.down_m} 
+            onChange={(v) => updateInput('down_m', v)} 
+          />
+          <OptionalInputValue
+            label="yaw_deg"
+            value={inputs.yaw_deg}
+            valid={valid.yaw_deg}
+            onChange={(v) => updateInput('yaw_deg', v)}
+            checked={hasYaw}
+            onToggle={toggleYaw}
+          />
+          <OptionalInputValue
+            label="hover_time_ms"
+            value={inputs.hover_time_ms}
+            valid={valid.hover_time_ms}
+            onChange={(v) => updateInput('hover_time_ms', v)}
+            checked={hasHoverTime}
+            onToggle={toggleHoverTime}
+          />
         </div>
       ) : (
         <p className="text-sm text-gray-500">Click on a setpoint to see details</p>
@@ -191,5 +254,40 @@ export function AddButton({ onClick }: { onClick: () => void }) {
     >
       Add setpoint
     </button>
+  );
+}
+
+function InputValue({ label, value, valid, onChange }: { label: string; value: string; valid: boolean; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="text-xs text-gray-400 block">{label}</label>
+      <input
+        className={`w-full rounded p-1 text-sm border ${valid ? 'border-gray-200' : 'border-red-500'}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
+function OptionalInputValue({ label, value, valid, onChange, checked, onToggle }: { label: string; value: string; valid: boolean; onChange: (v: string) => void; checked: boolean; onToggle: () => void }) {
+  return (
+    <div className="pt-1">
+      <label className="flex items-center gap-2 text-xs text-gray-400">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+        />
+        {label}
+      </label>
+      {checked ? (
+        <input
+          className={`mt-2 w-full rounded p-1 text-sm border ${valid ? 'border-gray-200' : 'border-red-500'}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : null}
+    </div>
   );
 }

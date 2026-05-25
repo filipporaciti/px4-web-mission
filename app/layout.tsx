@@ -28,14 +28,14 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="h-full flex flex-col overflow-hidden">
         <header className="w-full border-b py-3 px-4 bg-white/60">
           <nav className="flex gap-4 items-center">
             <Link href="/editor" className="text-sm font-medium">Editor</Link>
             <Link href="/draw" className="text-sm font-medium">Draw</Link>
           </nav>
         </header>
-        <main className="flex-1 p-4">{children}</main>
+        <main className="flex-1 min-h-0 p-4 overflow-hidden">{children}</main>
       </body>
     </html>
   );

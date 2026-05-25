@@ -399,7 +399,7 @@ export default function DrawPage() {
     <div className="flex h-full min-h-0 flex-col">
       <h1 className="mb-2 text-lg font-semibold">Marker and setpoint floor</h1>
       <div className="relative min-h-0 flex-1 rounded border overflow-hidden">
-        <div ref={mountRef} className="w-full h-[600px] border rounded" />
+        <div ref={mountRef} className="w-full h-full min-h-0 border rounded" />
         <InfoSidebar
           setPoint={selectedSetpointIndex >= 0 ? setpointsData.targets[selectedSetpointIndex] : null}
           index={selectedSetpointIndex}
